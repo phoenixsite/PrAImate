@@ -39,7 +39,7 @@ jobs:
           - target: windows-arm64
             os: windows-latest
           - target: darwin-arm64
-            os: macos-14
+            os: macos-15
           - target: darwin-amd64
             os: macos-15-intel
 
