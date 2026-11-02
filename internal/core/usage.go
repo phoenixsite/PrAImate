@@ -160,7 +160,7 @@ func (c *Core) UsageDashboard(ctx context.Context, month string) (*UsageDashboar
 			return nil, err
 		}
 		defer rows.Close()
-		result := []UsageBucket{}
+		result := make([]UsageBucket, 0, 8)
 		for rows.Next() {
 			var b UsageBucket
 			if err := rows.Scan(&b.Name, &b.Runs, &b.ReportedRuns, &b.InputTokens, &b.OutputTokens); err != nil {
@@ -171,17 +171,19 @@ func (c *Core) UsageDashboard(ctx context.Context, month string) (*UsageDashboar
 		}
 		return result, rows.Err()
 	}
-	if d.CLIs, err = group("cli", from, to, "2 DESC, 1"); err != nil {
-		return nil, err
-	}
-	if d.Models, err = group("CASE WHEN model='' THEN 'CLI default (unreported)' ELSE model END", from, to, "2 DESC, 1"); err != nil {
-		return nil, err
-	}
-	if d.Surfaces, err = group("surface", from, to, "2 DESC, 1"); err != nil {
-		return nil, err
-	}
-	if d.Days, err = group("substr(started_at,1,10)", from, to, "1"); err != nil {
-		return nil, err
+	if d.Totals.Runs > 0 {
+		if d.CLIs, err = group("cli", from, to, "2 DESC, 1"); err != nil {
+			return nil, err
+		}
+		if d.Models, err = group("CASE WHEN model='' THEN 'CLI default (unreported)' ELSE model END", from, to, "2 DESC, 1"); err != nil {
+			return nil, err
+		}
+		if d.Surfaces, err = group("surface", from, to, "2 DESC, 1"); err != nil {
+			return nil, err
+		}
+		if d.Days, err = group("substr(started_at,1,10)", from, to, "1"); err != nil {
+			return nil, err
+		}
 	}
 	if d.Months, err = group("substr(started_at,1,7)", start.AddDate(0, -5, 0).Format("2006-01-02"), to, "1"); err != nil {
 		return nil, err

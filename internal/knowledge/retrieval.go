@@ -67,21 +67,31 @@ func questionTerms(question string) map[string]bool {
 // File labels help discover conceptual graph matches, but must not outweigh
 // a match in the actual passage or make every chunk in a file equally relevant.
 func metadataTerms(idx *Index, query map[string]bool) map[string]map[string]bool {
-	labels := map[string]string{}
+	labels := make(map[string]*strings.Builder)
 	for _, n := range idx.Graph.Nodes {
-		if len(labels[n.SourceFile]) >= 8192 {
+		sb := labels[n.SourceFile]
+		if sb == nil {
+			sb = &strings.Builder{}
+			labels[n.SourceFile] = sb
+		}
+		if sb.Len() >= 8192 {
 			continue
 		}
 		label := n.Label
 		if len(label) > 1024 {
 			label = label[:1024]
 		}
-		labels[n.SourceFile] += " " + label
+		sb.WriteByte(' ')
+		sb.WriteString(label)
 	}
-	out := map[string]map[string]bool{}
+	out := make(map[string]map[string]bool, len(idx.Documents))
 	for _, doc := range idx.Documents {
 		m := map[string]bool{}
-		for _, t := range terms(doc.Path + labels[doc.Path]) {
+		text := doc.Path
+		if sb := labels[doc.Path]; sb != nil {
+			text += sb.String()
+		}
+		for _, t := range terms(text) {
 			if query[t] {
 				m[t] = true
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -57,10 +58,12 @@ func TestImportWorkpathTemplate(t *testing.T) {
 			t.Errorf("knowledge missing %q; got %v", want, files)
 		}
 	}
-	// Executable bit preserved.
-	dir, _ := AgentKnowledgeDir(agent.ID)
-	if fi, err := os.Stat(filepath.Join(dir, "tools", "triage.sh")); err != nil || fi.Mode().Perm()&0o100 == 0 {
-		t.Errorf("tools/triage.sh lost its executable bit (mode=%v err=%v)", fi.Mode(), err)
+	// Executable bit preserved on platforms supporting POSIX file mode bits.
+	if runtime.GOOS != "windows" {
+		dir, _ := AgentKnowledgeDir(agent.ID)
+		if fi, err := os.Stat(filepath.Join(dir, "tools", "triage.sh")); err != nil || fi.Mode().Perm()&0o100 == 0 {
+			t.Errorf("tools/triage.sh lost its executable bit (mode=%v err=%v)", fi.Mode(), err)
+		}
 	}
 
 	// Non-template dir rejected.

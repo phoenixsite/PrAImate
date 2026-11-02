@@ -3,6 +3,7 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -122,11 +123,11 @@ func scan(ctx context.Context, root *os.Root) ([]Document, map[string][]byte, []
 		if len(body) > maxFile {
 			return fmt.Errorf("knowledge file grew beyond limit: %s", path)
 		}
-		if strings.EqualFold(filepath.Ext(path), ".pdf") || strings.HasPrefix(string(body), "%PDF-") || !utf8.Valid(body) || strings.IndexByte(string(body), 0) >= 0 {
+		if strings.EqualFold(filepath.Ext(path), ".pdf") || bytes.HasPrefix(body, []byte("%PDF-")) || !utf8.Valid(body) || bytes.IndexByte(body, 0) >= 0 {
 			skipped = append(skipped, path+": binary or non-UTF-8; use Raw mode or Graphify for PDF/media")
 			return nil
 		}
-		if strings.TrimSpace(string(body)) == "" {
+		if len(bytes.TrimSpace(body)) == 0 {
 			return nil
 		}
 		total += len(body)
@@ -203,7 +204,11 @@ func compileIndex(ctx context.Context, dir string, docs []Document, contents map
 				}
 				// Keep identifiers searchable across a split inside a long line.
 				advance := n - 160
-				chunkLine += strings.Count(string(runes[:advance]), "\n")
+				for _, r := range runes[:advance] {
+					if r == '\n' {
+						chunkLine++
+					}
+				}
 				runes = runes[advance:]
 			}
 			if end == len(lines) {

@@ -189,8 +189,8 @@ func (c *streamCoalescer) push(ev ChatStreamEvent) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if ev.Type == "text" {
-		if c.pending.Type == "text" {
+	if ev.Type == "text" || ev.Type == "reasoning" {
+		if c.pending.Type == ev.Type {
 			c.pending.Text += ev.Text
 			return
 		}

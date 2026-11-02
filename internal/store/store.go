@@ -321,7 +321,9 @@ func encryptedDSN(path string, key []byte, readOnly bool) string {
 	q.Add("_pragma", "temp_store(memory)")
 	if !readOnly {
 		q.Add("_pragma", "journal_mode(WAL)")
+		q.Add("_pragma", "synchronous(NORMAL)")
 	}
+	q.Add("_pragma", "cache_size(-2000)")
 	return sqliteFileURI(path, q)
 }
 

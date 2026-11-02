@@ -18,6 +18,7 @@ package launcher
 // rest of the post-exit flow still runs.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -702,7 +703,7 @@ func locateOpenCodeTranscript(sandboxDir string, sessionStart time.Time) (string
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 
 	// We'll concatenate the message files into a single canonical JSONL.
-	var b strings.Builder
+	var b bytes.Buffer
 	var entries2 []TranscriptEntry
 	for _, f := range files {
 		if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") {
@@ -722,7 +723,7 @@ func locateOpenCodeTranscript(sandboxDir string, sessionStart time.Time) (string
 		}
 		entries2 = append(entries2, parseOpenCodeMessage(raw)...)
 	}
-	out := []byte(b.String())
+	out := b.Bytes()
 	return msgDir, out, entries2, "", nil
 }
 

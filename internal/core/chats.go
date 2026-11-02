@@ -234,6 +234,9 @@ func (c *Core) ListChats(ctx context.Context, limit int) ([]Chat, error) {
 	}
 	defer rows.Close()
 	var out []Chat
+	if limit > 0 {
+		out = make([]Chat, 0, min(limit, 64))
+	}
 	for rows.Next() {
 		ch, err := scanChat(rows.Scan)
 		if err != nil {
@@ -365,6 +368,9 @@ func (c *Core) ListMessages(ctx context.Context, chatID string, limit int) ([]Me
 	}
 	defer rows.Close()
 	var out []Message
+	if limit > 0 {
+		out = make([]Message, 0, min(limit, 128))
+	}
 	for rows.Next() {
 		m, err := scanMessage(rows.Scan)
 		if err != nil {
@@ -395,7 +401,7 @@ func (c *Core) ListRecentConversationMessages(ctx context.Context, chatID string
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Message
+	out := make([]Message, 0, min(limit, 128))
 	for rows.Next() {
 		m, err := scanMessage(rows.Scan)
 		if err != nil {
