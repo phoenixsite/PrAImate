@@ -88,7 +88,7 @@ func (v sessionView) history(messages []core.Message) {
 	fmt.Fprintln(v.out)
 }
 
-func (v sessionView) session(model, tools string, status *core.NativeContextStatus, attached int) {
+func (v sessionView) session(model, tools string, status *core.NativeContextStatus, attached int, pinned ...int) {
 	if tools == "" {
 		tools = "safe"
 	}
@@ -97,6 +97,9 @@ func (v sessionView) session(model, tools string, status *core.NativeContextStat
 	fmt.Fprint(v.out, v.style("  "+truncateRunes(model, max(16, width-24)), "36"), v.style("  ·  "+tools, "2"))
 	if attached > 0 {
 		fmt.Fprintf(v.out, "  ·  %d attached", attached)
+	}
+	if len(pinned) > 0 && pinned[0] > 0 {
+		fmt.Fprintf(v.out, "  ·  %d pinned", pinned[0])
 	}
 	fmt.Fprintln(v.out)
 	if status != nil && status.InputLimit > 0 {

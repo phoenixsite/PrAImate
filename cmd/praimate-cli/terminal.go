@@ -26,19 +26,26 @@ const interactiveHelp = `Commands:
   /attach PATH          Queue one file (spaces and quoted paths supported)
   /attachments          List files queued for the next message
   /detach N|all         Remove a queued file (1-based) or all files
+  /pin PATH             Pin a workspace file permanently into system context
+  /pinned               List currently pinned context files
+  /unpin PATH|all       Unpin a pinned file or all pinned files
+  /diff [staged]        Show working tree diff (or staged changes)
+  /export [PATH]        Export full chat transcript to a Markdown file
+  /repomap [on|off]     Show or toggle ambient repository map
   /mcp, /skills         Show configured core tools and skills
   /sessions             Choose a native core chat
   /compact              Compact model history (lossy; drops old images)
   /clear                Start a new chat, keeping the previous transcript
   /exit                 Exit (also Ctrl+D on an empty prompt)
+  ! <COMMAND>           Run a shell command directly in the workspace
 Keys: arrows/history, Home/End, Tab command and argument completion.
 Selectors: type a number; n/p changes page; Enter cancels.
-End a line with \ for multiline input. Bracketed paste keeps newlines;
-press Enter after pasting. Pasted slash commands are sent as text.
+Multiline: enclose in """ ... """ or end a line with \. Bracketed paste
+keeps newlines; press Enter after pasting. Pasted slash commands are sent as text.
 Ctrl+C cancels the current turn or clears the current input.
 Images go to the selected endpoint; they are not text-redacted.`
 
-var slashCommands = []string{"/help", "/status", "/context", "/models", "/model", "/tools", "/attach", "/attachments", "/detach", "/mcp", "/skills", "/sessions", "/compact", "/clear", "/exit"}
+var slashCommands = []string{"/help", "/status", "/context", "/models", "/model", "/tools", "/attach", "/attachments", "/detach", "/pin", "/pinned", "/unpin", "/diff", "/export", "/repomap", "/mcp", "/skills", "/sessions", "/compact", "/clear", "/exit"}
 
 func completeCommand(line string, pos int, key rune) (string, int, bool) {
 	if key != '\t' || pos != len(line) || !strings.HasPrefix(line, "/") || strings.ContainsAny(line, " \t\n") {
@@ -81,12 +88,16 @@ func completeInteractive(line string, pos int, key rune, models, attachments []s
 		choices = []string{"safe", "ask", "edits", "full"}
 	case "/model":
 		choices = models
-	case "/detach":
+	case "/diff":
+		choices = []string{"staged", "--cached"}
+	case "/repomap":
+		choices = []string{"on", "off", "refresh"}
+	case "/detach", "/unpin":
 		choices = []string{"all"}
 		for i := range attachments {
 			choices = append(choices, strconv.Itoa(i+1))
 		}
-	case "/attach":
+	case "/attach", "/pin":
 		return completeAttachmentPath(line, prefix, cwd)
 	default:
 		return line, pos, true
@@ -395,6 +406,7 @@ func (e *terminalEditor) choose(ctx context.Context, title string, options []str
 func readEditedInput(editor *term.Terminal, reader *promptInput, approval bool) (string, bool, error) {
 	var lines []string
 	size := 0
+	inBlock := false
 	for {
 		line, err := editor.ReadLine()
 		if errors.Is(err, io.EOF) && reader.last == 3 {
@@ -412,6 +424,30 @@ func readEditedInput(editor *term.Terminal, reader *promptInput, approval bool) 
 		}
 		if errors.Is(err, term.ErrPasteIndicator) {
 			lines = append(lines, line)
+			editor.SetPrompt("... ")
+			continue
+		}
+		if !approval && !reader.pasted && inBlock {
+			if strings.HasSuffix(line, `"""`) {
+				content := strings.TrimSuffix(line, `"""`)
+				if content != "" {
+					lines = append(lines, content)
+				}
+				return strings.Join(lines, "\n"), true, nil
+			}
+			lines = append(lines, line)
+			editor.SetPrompt("... ")
+			continue
+		}
+		if !approval && !reader.pasted && strings.HasPrefix(line, `"""`) {
+			trimmed := strings.TrimPrefix(line, `"""`)
+			if strings.HasSuffix(trimmed, `"""`) && len(trimmed) >= 3 {
+				return strings.TrimSuffix(trimmed, `"""`), false, nil
+			}
+			if trimmed != "" {
+				lines = append(lines, trimmed)
+			}
+			inBlock = true
 			editor.SetPrompt("... ")
 			continue
 		}

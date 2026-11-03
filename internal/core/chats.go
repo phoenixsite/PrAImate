@@ -95,6 +95,14 @@ type ChatSettings struct {
 	// sessions separately and offer "reopen studio".
 	Surface string `json:"surface,omitempty"`
 
+	// PinnedFiles lists workspace-relative file paths whose contents are
+	// pinned permanently into the system prompt for every turn of this chat.
+	PinnedFiles []string `json:"pinned_files,omitempty"`
+
+	// RepoMap, if true, instructs the CLI or runtime to inject an ambient
+	// workspace repository map (files and exported signatures) into system context.
+	RepoMap bool `json:"repo_map,omitempty"`
+
 	// Local, if set, routes this chat through a self-hosted
 	// OpenAI-compatible endpoint instead of the CLI's cloud backend —
 	// resolved at launch for OpenClaude, OpenCode, PrAImate Code and CLI.

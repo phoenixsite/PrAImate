@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -210,5 +211,249 @@ func TestChatSystemPromptDoesNotLeakBetweenSessions(t *testing.T) {
 	}
 	if !strings.Contains(firstSystem, "first only") || strings.Contains(secondSystem, "first only") || !strings.Contains(secondSystem, "second only") {
 		t.Fatalf("session system context leaked: first=%q second=%q", firstSystem, secondSystem)
+	}
+}
+
+func TestNativeCLIPinnedFilesAndSystemPrompt(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	ws := t.TempDir()
+	rulesFile := filepath.Join(ws, "ARCH.md")
+	if err := os.WriteFile(rulesFile, []byte("# Architecture Rules\nKeep components decoupled.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	// 1. /pinned initially empty
+	if err := command(ctx, c, chat.ID, "/pinned", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No pinned files") {
+		t.Fatalf("expected empty pinned files, got: %s", out.String())
+	}
+
+	// 2. /pin ARCH.md
+	out.Reset()
+	if err := command(ctx, c, chat.ID, "/pin ARCH.md", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Pinned: ARCH.md") {
+		t.Fatalf("unexpected pin output: %s", out.String())
+	}
+
+	// 3. /pinned now shows ARCH.md
+	out.Reset()
+	if err := command(ctx, c, chat.ID, "/pinned", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "1. ARCH.md") {
+		t.Fatalf("expected 1. ARCH.md, got: %s", out.String())
+	}
+
+	// 4. Verify chatSystemPrompt includes pinned content
+	refetched, err := c.GetChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, _, _, err := chatSystemPrompt(ctx, c, refetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(system, "[Pinned Context: ARCH.md]") || !strings.Contains(system, "Keep components decoupled.") {
+		t.Fatalf("chatSystemPrompt missing pinned content: %s", system)
+	}
+
+	// 5. /unpin 1
+	out.Reset()
+	if err := command(ctx, c, chat.ID, "/unpin 1", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Unpinned: ARCH.md") {
+		t.Fatalf("unexpected unpin output: %s", out.String())
+	}
+
+	// 6. Verify unpinned from chatSystemPrompt
+	refetched, err = c.GetChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, _, _, err = chatSystemPrompt(ctx, c, refetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(system, "[Pinned Context: ARCH.md]") {
+		t.Fatalf("unpinned content still in system prompt: %s", system)
+	}
+}
+
+func TestNativeCLIExportCommand(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	ws := t.TempDir()
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: ws, Title: "Export Test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddMessage(ctx, chat.ID, "user", "What is 2+2?", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddMessage(ctx, chat.ID, "assistant", "4", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	exportTarget := filepath.Join(ws, "transcript.md")
+	if err := command(ctx, c, chat.ID, "/export "+exportTarget, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Session exported to:") {
+		t.Fatalf("unexpected export output: %s", out.String())
+	}
+
+	data, err := os.ReadFile(exportTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "# PrAImate Chat Export") ||
+		!strings.Contains(content, "What is 2+2?") ||
+		!strings.Contains(content, "### Assistant") ||
+		!strings.Contains(content, "4") {
+		t.Fatalf("invalid export content:\n%s", content)
+	}
+}
+
+func TestNativeCLIDiffCommand(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	ws := t.TempDir()
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	err = command(ctx, c, chat.ID, "/diff", &out)
+	if err == nil && !strings.Contains(out.String(), "Working tree clean") {
+		t.Fatalf("expected git error or clean in non-git dir, got err=%v out=%s", err, out.String())
+	}
+}
+
+func TestNativeCLIShellCommand(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	ws := t.TempDir()
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	turn, err := c.RunChatCommand(ctx, chat.ID, "echo hello-praimate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(turn.Reply, "hello-praimate") {
+		t.Fatalf("unexpected shell output: %s", turn.Reply)
+	}
+	messages, err := c.ListMessages(ctx, chat.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) < 2 || messages[len(messages)-1].Role != "command" {
+		t.Fatalf("shell turn was not persisted as command: %+v", messages)
+	}
+}
+
+func TestNativeCLIRepoMapCommandAndSystemPrompt(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	ws := t.TempDir()
+	sourceFile := filepath.Join(ws, "main.go")
+	if err := os.WriteFile(sourceFile, []byte("package main\n\nfunc EntryPoint() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	// 1. /repomap initially shows repo map but disabled in system prompt
+	if err := command(ctx, c, chat.ID, "/repomap", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "AMBIENT REPO MAP") || !strings.Contains(out.String(), "main.go (EntryPoint)") {
+		t.Fatalf("unexpected repomap output: %s", out.String())
+	}
+
+	// 2. /repomap on enables it
+	out.Reset()
+	if err := command(ctx, c, chat.ID, "/repomap on", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "enabled for this chat") {
+		t.Fatalf("unexpected repomap on output: %s", out.String())
+	}
+
+	// 3. chatSystemPrompt now contains the repo map
+	refetched, err := c.GetChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, _, _, err := chatSystemPrompt(ctx, c, refetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(system, "[Ambient Repo Map:") || !strings.Contains(system, "main.go (EntryPoint)") {
+		t.Fatalf("system prompt missing repo map: %s", system)
+	}
+
+	// 4. /repomap off disables it
+	out.Reset()
+	if err := command(ctx, c, chat.ID, "/repomap off", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "disabled") {
+		t.Fatalf("unexpected repomap off output: %s", out.String())
+	}
+	refetched, err = c.GetChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, _, _, err = chatSystemPrompt(ctx, c, refetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(system, "[Ambient Repo Map:") {
+		t.Fatalf("system prompt still contains disabled repo map: %s", system)
 	}
 }

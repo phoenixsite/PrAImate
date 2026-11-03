@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -27,7 +28,7 @@ import (
 type options struct {
 	chat, agent, model, endpoint, tools, format, system, cwd, workflow, inputs, mcp string
 	contextTokens, outputTokens                                                     int
-	resume, passwordStdin, version                                                  bool
+	resume, passwordStdin, version, repoMap                                         bool
 	attachments                                                                     attachmentFlags
 	showReasoning                                                                   bool
 }
@@ -63,6 +64,7 @@ func run(ctx context.Context, args []string) error {
 	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Output limit: 0 adapts automatically to the backend (includes reasoning)")
 	fs.BoolVar(&o.resume, "continue", false, "Resume the latest native chat in this workspace")
 	fs.BoolVar(&o.passwordStdin, "db-password-stdin", false, "Read database password from the first stdin line")
+	fs.BoolVar(&o.repoMap, "repomap", false, "Include ambient repository map in chat context")
 	fs.BoolVar(&o.version, "version", false, "Print version")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "PrAImate native CLI — shared core runtime\nUsage: praimate-cli [run] [flags] [prompt]\nKeys come from the core vault or OPENAI_API_KEY.\nInteractive: /help, /status, /context, /attach PATH, /model [ID], /tools [LEVEL], /sessions, /compact, /exit\nTab completes commands and arguments; /model, /tools and /sessions offer selectors.")
@@ -245,6 +247,9 @@ func run(ctx context.Context, args []string) error {
 			if visited["output-tokens"] {
 				s.Local.OutputTokens = o.outputTokens
 			}
+		}
+		if visited["repomap"] {
+			s.RepoMap = o.repoMap
 		}
 		if visited["mcp"] {
 			s.MCPServers = nil
@@ -499,7 +504,7 @@ func run(ctx context.Context, args []string) error {
 			if !current.Settings.ToolsConfigured && current.AgentID != "" {
 				level = "agent permissions"
 			}
-			view.session(model, level, status, len(pending))
+			view.session(model, level, status, len(pending), len(chat.Settings.PinnedFiles))
 		}
 		label := "praimate> "
 		if len(pending) > 0 {
@@ -518,6 +523,20 @@ func run(ctx context.Context, args []string) error {
 		}
 		line = strings.TrimSpace(line)
 		if line == "" && len(pending) == 0 {
+			continue
+		}
+		if !pasted && strings.HasPrefix(line, "!") {
+			cmdStr := strings.TrimSpace(strings.TrimPrefix(line, "!"))
+			if cmdStr == "" {
+				fmt.Fprintln(statusOutput, "Usage: ! <command>")
+				continue
+			}
+			turn, cmdErr := c.RunChatCommand(ctx, chat.ID, cmdStr)
+			if cmdErr != nil {
+				fmt.Fprintf(statusOutput, "Command error: %v\n", cmdErr)
+			} else {
+				fmt.Fprintln(output, turn.Reply)
+			}
 			continue
 		}
 		if !pasted && (line == "/exit" || line == "/quit") {
@@ -679,10 +698,15 @@ func run(ctx context.Context, args []string) error {
 			}
 			if commandErr != nil {
 				fmt.Fprintln(statusOutput, commandErr)
-			} else if name == "/model" || name == "/tools" {
+			} else if name == "/model" || name == "/tools" || name == "/pin" || name == "/unpin" || name == "/repomap" {
 				chat, commandErr = c.GetChat(ctx, chat.ID)
 				if commandErr != nil {
 					fmt.Fprintln(statusOutput, commandErr)
+				} else if name == "/pin" || name == "/unpin" || name == "/repomap" {
+					system, customSystem, agent, commandErr = chatSystemPrompt(ctx, c, chat)
+					if commandErr != nil {
+						fmt.Fprintln(statusOutput, commandErr)
+					}
 				}
 			}
 			continue
@@ -739,7 +763,25 @@ func chatSystemPrompt(ctx context.Context, c *core.Core, chat *core.Chat) (strin
 	if chat.Settings.SkillsV2 == nil {
 		system = core.ResolveSkillsPrefix(chat.Settings.Skills) + "\n" + system
 	}
-	return system, customSystem, agent, nil
+	for _, rel := range chat.Settings.PinnedFiles {
+		fullPath := rel
+		if !filepath.IsAbs(fullPath) {
+			fullPath = filepath.Join(chat.WorkspacePath, fullPath)
+		}
+		if content, err := os.ReadFile(fullPath); err == nil {
+			const maxPinnedSize = 64 * 1024
+			if len(content) > maxPinnedSize {
+				content = append(content[:maxPinnedSize], []byte("\n... [Pinned file truncated]")...)
+			}
+			system += fmt.Sprintf("\n\n---\n[Pinned Context: %s]\n%s\n", rel, string(content))
+		}
+	}
+	if chat.Settings.RepoMap {
+		if rMap := c.WorkspaceRepoMap(chat.WorkspacePath, 800); rMap != "" {
+			system += "\n\n---\n" + rMap + "\n"
+		}
+	}
+	return strings.TrimSpace(system), customSystem, agent, nil
 }
 
 func openCore(input *bufio.Reader, passwordStdin, interactive bool) (*core.Core, func(), error) {
@@ -987,6 +1029,195 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		}
 		if count == 0 {
 			fmt.Fprintln(output, "None installed and approved.")
+		}
+	case "/pinned":
+		if len(chat.Settings.PinnedFiles) == 0 {
+			fmt.Fprintln(output, "No pinned files in this session.")
+			return nil
+		}
+		fmt.Fprintln(output, "\nPINNED FILES")
+		for i, p := range chat.Settings.PinnedFiles {
+			fmt.Fprintf(output, "  %d. %s\n", i+1, p)
+		}
+	case "/pin":
+		if arg == "" {
+			return errors.New("usage: /pin PATH")
+		}
+		cleanPath := strings.Trim(arg, `"'`)
+		fullPath := cleanPath
+		if !filepath.IsAbs(fullPath) {
+			fullPath = filepath.Join(chat.WorkspacePath, cleanPath)
+		}
+		fi, err := os.Stat(fullPath)
+		if err != nil {
+			return fmt.Errorf("pin: %w", err)
+		}
+		if fi.IsDir() {
+			return fmt.Errorf("pin: %s is a directory", cleanPath)
+		}
+		rel, err := filepath.Rel(chat.WorkspacePath, fullPath)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			rel = cleanPath
+		}
+		for _, existing := range chat.Settings.PinnedFiles {
+			if existing == rel {
+				fmt.Fprintf(output, "File already pinned: %s\n", rel)
+				return nil
+			}
+		}
+		err = c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) {
+			s.PinnedFiles = append(s.PinnedFiles, rel)
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(output, "Pinned: %s (%d bytes)\n", rel, fi.Size())
+	case "/unpin":
+		if arg == "" {
+			return errors.New("usage: /unpin PATH | N | all")
+		}
+		if len(chat.Settings.PinnedFiles) == 0 {
+			fmt.Fprintln(output, "No pinned files.")
+			return nil
+		}
+		if arg == "all" {
+			err := c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) {
+				s.PinnedFiles = nil
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(output, "Unpinned all files.")
+			return nil
+		}
+		idx, convErr := strconv.Atoi(arg)
+		target := arg
+		if convErr == nil {
+			if idx < 1 || idx > len(chat.Settings.PinnedFiles) {
+				return fmt.Errorf("invalid pinned index %d (1-%d)", idx, len(chat.Settings.PinnedFiles))
+			}
+			target = chat.Settings.PinnedFiles[idx-1]
+		}
+		found := false
+		err = c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) {
+			var updated []string
+			for _, p := range s.PinnedFiles {
+				if p == target && !found {
+					found = true
+					continue
+				}
+				updated = append(updated, p)
+			}
+			s.PinnedFiles = updated
+		})
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("pinned file %q not found", arg)
+		}
+		fmt.Fprintf(output, "Unpinned: %s\n", target)
+	case "/diff":
+		cwd := chat.WorkspacePath
+		if cwd == "" || cwd == "." {
+			cwd, _ = os.Getwd()
+		}
+		gitArgs := []string{"--no-pager", "-c", "core.fsmonitor=false", "-C", cwd, "diff"}
+		if arg == "staged" || arg == "--cached" {
+			gitArgs = append(gitArgs, "--cached")
+		} else if arg != "" {
+			gitArgs = append(gitArgs, arg)
+		}
+		cmd := exec.CommandContext(ctx, "git", gitArgs...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("git diff: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+		res := strings.TrimSpace(string(out))
+		if res == "" {
+			if arg == "staged" || arg == "--cached" {
+				fmt.Fprintln(output, "No staged changes.")
+			} else {
+				fmt.Fprintln(output, "Working tree clean (no changes).")
+			}
+			return nil
+		}
+		fmt.Fprintln(output, res)
+	case "/export":
+		exportPath := arg
+		if exportPath == "" {
+			prefix := chat.ID
+			if len(prefix) > 8 {
+				prefix = prefix[:8]
+			}
+			exportPath = fmt.Sprintf("praimate-chat-%s.md", prefix)
+		}
+		exportPath = strings.Trim(exportPath, `"'`)
+		if !filepath.IsAbs(exportPath) {
+			exportPath = filepath.Join(chat.WorkspacePath, exportPath)
+		}
+		if err := os.MkdirAll(filepath.Dir(exportPath), 0755); err != nil {
+			return fmt.Errorf("export: %w", err)
+		}
+		messages, err := c.ListMessages(ctx, id, 0)
+		if err != nil {
+			return fmt.Errorf("export: list messages: %w", err)
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "# PrAImate Chat Export\n\n")
+		fmt.Fprintf(&b, "- **Chat ID:** `%s`\n", chat.ID)
+		fmt.Fprintf(&b, "- **Title:** %s\n", chat.Title)
+		fmt.Fprintf(&b, "- **Workspace:** `%s`\n", chat.WorkspacePath)
+		fmt.Fprintf(&b, "- **Model:** `%s`\n", chat.Settings.Model)
+		fmt.Fprintf(&b, "- **Exported At:** %s\n\n---\n\n", time.Now().Format(time.RFC3339))
+		for _, m := range messages {
+			roleTitle := strings.ToUpper(m.Role)
+			switch m.Role {
+			case "user":
+				roleTitle = "User"
+			case "assistant":
+				roleTitle = "Assistant"
+			case "tool":
+				roleTitle = "Tool Result"
+			case "system":
+				roleTitle = "System"
+			case "command":
+				roleTitle = "Command Output"
+			}
+			fmt.Fprintf(&b, "### %s (%s)\n\n", roleTitle, m.TS.Format("2006-01-02 15:04:05"))
+			fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(m.Content))
+		}
+		if err := os.WriteFile(exportPath, []byte(b.String()), 0600); err != nil {
+			return fmt.Errorf("export: %w", err)
+		}
+		fmt.Fprintf(output, "Session exported to: %s (%d messages)\n", exportPath, len(messages))
+	case "/repomap":
+		if arg == "on" {
+			err := c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) { s.RepoMap = true })
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(output, "Ambient Repo Map enabled for this chat.")
+			return nil
+		} else if arg == "off" {
+			err := c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) { s.RepoMap = false })
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(output, "Ambient Repo Map disabled.")
+			return nil
+		} else if arg == "refresh" {
+			core.InvalidateRepoMap(chat.WorkspacePath)
+		}
+		rMap := c.WorkspaceRepoMap(chat.WorkspacePath, 800)
+		if rMap == "" {
+			fmt.Fprintln(output, "Repo Map: empty (no supported source files found).")
+		} else {
+			status := "disabled in system prompt; use /repomap on to include in context"
+			if chat.Settings.RepoMap {
+				status = "active in system prompt"
+			}
+			fmt.Fprintf(output, "\nAMBIENT REPO MAP (%s)\n%s\n", status, rMap)
 		}
 	case "/sessions":
 		chats, err := c.ListChats(ctx, 50)

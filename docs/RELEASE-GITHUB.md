@@ -21,9 +21,9 @@ Intel and Apple Silicon on separate native runners, merges their artifacts, gene
 For example, after reviewing and committing the version and source changes:
 
 ```bash
-git tag -a v1.2.24 -m "PrAImate 1.2.24"
+git tag -a v1.2.25 -m "PrAImate 1.2.25"
 git push origin main
-git push origin v1.2.24
+git push origin v1.2.25
 ```
 
 Tags use a `v` prefix in this workflow; the stamped application version does
@@ -40,7 +40,7 @@ On Linux amd64:
 
 ```bash
 PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH" \
-  bash scripts/build.sh --version=1.2.24 --with-code --with-graphify
+  bash scripts/build.sh --version=1.2.25 --with-code --with-graphify
 ```
 
 This builds Linux amd64 and cross-compiles the Windows GUI bundles. Optional
@@ -49,12 +49,12 @@ GUI cross-compilation does not produce those standalone Windows tools. Build
 Linux arm64 bundles on a native arm64 host. Build macOS on a Mac of the matching architecture:
 
 ```bash
-bash scripts/build.sh darwin-arm64 --version=1.2.24 --with-code --with-graphify
+bash scripts/build.sh darwin-arm64 --version=1.2.25 --with-code --with-graphify
 # On an Intel Mac:
-bash scripts/build.sh darwin-amd64 --version=1.2.24 --with-code --with-graphify
+bash scripts/build.sh darwin-amd64 --version=1.2.25 --with-code --with-graphify
 ```
 
-On Windows, `scripts/build.ps1 -Version 1.2.24` builds the Windows GUI bundles.
+On Windows, `scripts/build.ps1 -Version 1.2.25` builds the Windows GUI bundles.
 The automated workflow uses Bash and builds optional tools on native runners.
 Review the actual output: missing Bun or uv can skip optional assets, and an
 arm64 target on an amd64 Windows runner cannot build native Graphify.

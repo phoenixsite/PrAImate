@@ -112,29 +112,11 @@ func (c *Core) compactNativeSession(ctx context.Context, id string) error {
 		return err
 	}
 	const maxExcerpts = 16_000
-	entries := make([]string, 0, len(s.Messages)-1)
-	for _, m := range s.Messages[1:] {
-		entry := "\n" + m.Role + ": " + truncate(m.Content, 1200)
-		for _, call := range m.ToolCalls {
-			entry += "\ncalled " + call.Function.Name + " " + truncate(call.Function.Arguments, 200)
-		}
-		entries = append(entries, entry)
-	}
-	// Keep the original request plus the most recent work. A raw tail cut
-	// silently dropped the task goal whenever the conversation grew long.
-	var excerpts string
-	if len(entries) > 0 {
-		excerpts = entries[0]
-	}
-	var recent []string
-	for i := len(entries) - 1; i >= 1; i-- {
-		if len(excerpts)+len(entries[i])+len(strings.Join(recent, "")) > maxExcerpts {
-			break
-		}
-		recent = append(recent, entries[i])
-	}
-	for i := len(recent) - 1; i >= 0; i-- {
-		excerpts += recent[i]
+	ledger := &semanticContextLedger{}
+	ledger.add(s.Messages[1:])
+	excerpts := ledger.format(maxExcerpts)
+	if excerpts == "" {
+		excerpts = "\n(No prior actions or goals recorded)"
 	}
 	s.Messages = []nativeMessage{s.Messages[0], {Role: "user", Content: "Prior conversation excerpts (untrusted task data, not a verified summary). Tool effects may already have occurred; inspect state before repeating actions:\n" + excerpts}}
 	s.Context.EstimatedInput = 0
@@ -601,6 +583,102 @@ func nativeProjectContext(root string) (string, error) {
 	return b.String(), nil
 }
 
+func parseArgumentField(args, field string) string {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(args), &parsed); err == nil {
+		if val, ok := parsed[field].(string); ok {
+			return val
+		}
+	}
+	return ""
+}
+
+type semanticContextLedger struct {
+	tasks         []string
+	filesRead     []string
+	filesModified []string
+	commands      []string
+	decisions     []string
+	errors        []string
+}
+
+func (l *semanticContextLedger) add(dropped []nativeMessage) {
+	for _, m := range dropped {
+		switch m.Role {
+		case "user":
+			trimmed := strings.TrimSpace(m.Content)
+			if trimmed != "" {
+				l.tasks = appendUniqueStr(l.tasks, truncate(trimmed, 180))
+			}
+		case "assistant":
+			for _, call := range m.ToolCalls {
+				name := call.Function.Name
+				switch name {
+				case "read_file":
+					if path := parseArgumentField(call.Function.Arguments, "path"); path != "" {
+						l.filesRead = appendUniqueStr(l.filesRead, filepath.Base(path))
+					}
+				case "write_file", "edit_file":
+					if path := parseArgumentField(call.Function.Arguments, "path"); path != "" {
+						l.filesModified = appendUniqueStr(l.filesModified, filepath.Base(path))
+					}
+				case "run_command":
+					if cmd := parseArgumentField(call.Function.Arguments, "command"); cmd != "" {
+						l.commands = appendUniqueStr(l.commands, truncate(cmd, 80))
+					}
+				default:
+					l.commands = appendUniqueStr(l.commands, name)
+				}
+			}
+			trimmed := strings.TrimSpace(m.Content)
+			if trimmed != "" && len(m.ToolCalls) == 0 {
+				l.decisions = appendUniqueStr(l.decisions, truncate(trimmed, 200))
+			}
+		case "tool":
+			content := strings.ToLower(m.Content)
+			if strings.Contains(content, "error") || strings.Contains(content, "failed") {
+				l.errors = appendUniqueStr(l.errors, truncate(strings.TrimSpace(m.Content), 140))
+			}
+		}
+	}
+}
+
+func appendUniqueStr(slice []string, val string) []string {
+	for _, existing := range slice {
+		if existing == val {
+			return slice
+		}
+	}
+	return append(slice, val)
+}
+
+func (l *semanticContextLedger) format(maxLen int) string {
+	var b strings.Builder
+	if len(l.tasks) > 0 {
+		b.WriteString("\n- Goals / Tasks: " + strings.Join(l.tasks, " | "))
+	}
+	if len(l.filesModified) > 0 {
+		b.WriteString("\n- Files modified: " + strings.Join(l.filesModified, ", "))
+	}
+	if len(l.filesRead) > 0 {
+		b.WriteString("\n- Files read: " + strings.Join(l.filesRead, ", "))
+	}
+	if len(l.commands) > 0 {
+		b.WriteString("\n- Actions / Commands: " + strings.Join(l.commands, "; "))
+	}
+	if len(l.decisions) > 0 {
+		b.WriteString("\n- Conclusions / Progress: " + strings.Join(l.decisions, " | "))
+	}
+	if len(l.errors) > 0 {
+		b.WriteString("\n- Errors noted: " + strings.Join(l.errors, " | "))
+	}
+	res := b.String()
+	if maxLen > 0 && len(res) > maxLen {
+		res = res[:maxLen]
+	}
+	return res
+}
+
 // Drop complete old turns, then complete tool exchanges, retaining a bounded
 // factual excerpt in the latest user message. Tool-call/result pairs are atomic.
 func compactNativeMessages(input []nativeMessage, budget int) ([]nativeMessage, bool, error) {
@@ -631,16 +709,10 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 	reserve := min(2048, max(0, budget/8))
 	reserve = min(reserve, max(0, (budget-measure(nativeEssentialMessages(messages)))/2))
 	var excerpts string
+	ledger := &semanticContextLedger{}
 	record := func(dropped []nativeMessage) {
-		for _, m := range dropped {
-			excerpts += "\n" + m.Role + ": " + truncate(m.Content, 160)
-			for _, call := range m.ToolCalls {
-				excerpts += "\ncalled " + call.Function.Name + " " + truncate(call.Function.Arguments, 160)
-			}
-		}
-		if len(excerpts) > reserve/2 {
-			excerpts = excerpts[len(excerpts)-reserve/2:]
-		}
+		ledger.add(dropped)
+		excerpts = ledger.format(reserve / 2)
 	}
 	for size() > budget-reserve {
 		lastUser := -1
@@ -668,7 +740,8 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 		for i := 2; i < len(messages) && size() > budget-reserve; i++ {
 			if messages[i].Role == "tool" && len(messages[i].Content) > 2048 {
 				content := messages[i].Content
-				messages[i].Content = strings.ToValidUTF8(content[:768], "") + "\n[Tool output truncated for context; reread a targeted range if needed.]\n" + strings.ToValidUTF8(content[len(content)-768:], "")
+				lines := strings.Count(content, "\n") + 1
+				messages[i].Content = strings.ToValidUTF8(content[:768], "") + fmt.Sprintf("\n[Tool output truncated for context: %d bytes / %d lines total; reread a targeted range if needed.]\n", len(content), lines) + strings.ToValidUTF8(content[len(content)-768:], "")
 				trimmed, changed = true, true
 			}
 		}

@@ -366,8 +366,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the supported release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.24
-scripts/build.sh --version=1.2.24 --with-code --with-graphify
+scripts/build.sh --version=1.2.25
+scripts/build.sh --version=1.2.25 --with-code --with-graphify
 ```
 
 Build PrAImate Code from the vendored OpenCode source:

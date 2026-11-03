@@ -30,8 +30,8 @@ func TestSessionViewSanitizesMetadataAndRespectsNoColor(t *testing.T) {
 	var out bytes.Buffer
 	v := sessionView{out: &out, width: 80}
 	v.banner("test", "work\x1b]52;c;injection\a", "session")
-	v.session("local-model", "safe", nil, 2)
-	if strings.ContainsAny(out.String(), "\x1b\a") || !strings.Contains(out.String(), "2 attached") {
+	v.session("local-model", "safe", nil, 2, 3)
+	if strings.ContainsAny(out.String(), "\x1b\a") || !strings.Contains(out.String(), "2 attached") || !strings.Contains(out.String(), "3 pinned") {
 		t.Fatal(out.String())
 	}
 }

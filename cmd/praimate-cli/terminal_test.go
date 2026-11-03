@@ -43,6 +43,8 @@ func TestNativeTerminalEditingPasteAndCommands(t *testing.T) {
 		{"edit", "helo\x1b[Dlo\x7f\r", "hello", false},
 		{"complete", "/cont\t\r", "/context ", false},
 		{"multiline", "first\\\rsecond\r", "first\nsecond", true},
+		{"triple_quote", "\"\"\"first line\rsecond line\r\"\"\"\r", "first line\nsecond line", true},
+		{"triple_quote_inline", "\"\"\"inline content\"\"\"\r", "inline content", false},
 		{"paste", "\x1b[200~first\nsecond\x1b[201~\r", "first\nsecond", true},
 		{"pasted_command", "\x1b[200~/clear\x1b[201~\r", "/clear", true},
 		{"partial_paste", "prefix \x1b[200~/clear\x1b[201~\r", "prefix /clear", true},
