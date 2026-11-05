@@ -259,7 +259,7 @@ func TestNativeCLIPinnedFilesAndSystemPrompt(t *testing.T) {
 		t.Fatalf("expected 1. ARCH.md, got: %s", out.String())
 	}
 
-	// 4. Verify chatSystemPrompt includes pinned content
+	// 4. Pins persist as settings; the core adds fresh contents per request.
 	refetched, err := c.GetChat(ctx, chat.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -268,8 +268,11 @@ func TestNativeCLIPinnedFilesAndSystemPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(system, "[Pinned Context: ARCH.md]") || !strings.Contains(system, "Keep components decoupled.") {
-		t.Fatalf("chatSystemPrompt missing pinned content: %s", system)
+	if len(refetched.Settings.PinnedFiles) != 1 || refetched.Settings.PinnedFiles[0] != "ARCH.md" {
+		t.Fatalf("pinned settings were not saved: %v", refetched.Settings.PinnedFiles)
+	}
+	if strings.Contains(system, "Keep components decoupled.") {
+		t.Fatal("mutable pinned contents must not be baked into the initial system prompt")
 	}
 
 	// 5. /unpin 1
@@ -281,7 +284,7 @@ func TestNativeCLIPinnedFilesAndSystemPrompt(t *testing.T) {
 		t.Fatalf("unexpected unpin output: %s", out.String())
 	}
 
-	// 6. Verify unpinned from chatSystemPrompt
+	// 6. Unpin updates the settings used by resumed requests.
 	refetched, err = c.GetChat(ctx, chat.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -292,6 +295,9 @@ func TestNativeCLIPinnedFilesAndSystemPrompt(t *testing.T) {
 	}
 	if strings.Contains(system, "[Pinned Context: ARCH.md]") {
 		t.Fatalf("unpinned content still in system prompt: %s", system)
+	}
+	if len(refetched.Settings.PinnedFiles) != 0 {
+		t.Fatal("unpin did not clear the saved setting")
 	}
 }
 
@@ -424,7 +430,7 @@ func TestNativeCLIRepoMapCommandAndSystemPrompt(t *testing.T) {
 		t.Fatalf("unexpected repomap on output: %s", out.String())
 	}
 
-	// 3. chatSystemPrompt now contains the repo map
+	// 3. Persist the toggle without baking a stale map into the initial prompt.
 	refetched, err := c.GetChat(ctx, chat.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -433,8 +439,11 @@ func TestNativeCLIRepoMapCommandAndSystemPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(system, "[Ambient Repo Map:") || !strings.Contains(system, "main.go (EntryPoint)") {
-		t.Fatalf("system prompt missing repo map: %s", system)
+	if !refetched.Settings.RepoMap {
+		t.Fatal("repo-map setting was not enabled")
+	}
+	if strings.Contains(system, "[Ambient Repo Map:") {
+		t.Fatal("mutable repo map must be added by the core per request")
 	}
 
 	// 4. /repomap off disables it
@@ -455,5 +464,8 @@ func TestNativeCLIRepoMapCommandAndSystemPrompt(t *testing.T) {
 	}
 	if strings.Contains(system, "[Ambient Repo Map:") {
 		t.Fatalf("system prompt still contains disabled repo map: %s", system)
+	}
+	if refetched.Settings.RepoMap {
+		t.Fatal("repo-map setting was not disabled")
 	}
 }

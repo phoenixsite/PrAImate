@@ -14,6 +14,7 @@ package core
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -96,7 +97,7 @@ type ChatSettings struct {
 	Surface string `json:"surface,omitempty"`
 
 	// PinnedFiles lists workspace-relative file paths whose contents are
-	// pinned permanently into the system prompt for every turn of this chat.
+	// refreshed in the request context on every model call in this chat.
 	PinnedFiles []string `json:"pinned_files,omitempty"`
 
 	// RepoMap, if true, instructs the CLI or runtime to inject an ambient
@@ -491,15 +492,14 @@ func orEmptyMeta(m map[string]any) map[string]any {
 	return m
 }
 
-// chatID builds a stable id from the title and the creation time. The
-// timestamp prefix keeps natural sort order; the slug makes ls output
-// scannable.
+// The timestamp/title stay readable; a random suffix distinguishes same-title
+// chats created in the same clock tick, including by separate processes.
 func chatID(t time.Time, title string) string {
 	slug := chatSlug(title)
 	if slug == "" {
 		slug = "chat"
 	}
-	return fmt.Sprintf("%s-%s", t.Format("20060102-150405"), slug)
+	return fmt.Sprintf("%s-%s-%s", t.Format("20060102-150405"), slug, rand.Text()[:12])
 }
 
 func chatSlug(s string) string {

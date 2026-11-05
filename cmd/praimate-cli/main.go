@@ -295,6 +295,7 @@ func run(ctx context.Context, args []string) error {
 	renderer := newTextRenderer(os.Stdout, colored, width)
 	var renderedText, thinking, reasoningOpen bool
 	var toolCount int
+	toolStarted := make(map[string]time.Time)
 	var lastUsage *core.NativeUsage
 	emit := func(event core.StreamEvent) {
 		eventMu.Lock()
@@ -344,15 +345,21 @@ func run(ctx context.Context, args []string) error {
 			}
 		case "tool_start":
 			toolCount++
+			if event.ID != "" {
+				toolStarted[event.ID] = time.Now()
+			}
 			fmt.Fprintf(statusOutput, "\n  TOOL  %s  %s\n", event.Tool, event.Detail)
 		case "tool_end":
-			state := "✓ done"
-			if !event.OK {
-				state = "✗ failed"
+			var elapsed time.Duration
+			if started, ok := toolStarted[event.ID]; ok {
+				elapsed = time.Since(started)
+				delete(toolStarted, event.ID)
 			}
-			fmt.Fprintf(statusOutput, "  %s  %s\n", state, event.Tool)
+			view.toolResult(event, elapsed)
 		case "context_compacted", "context_recovery":
 			fmt.Fprintf(statusOutput, "  CONTEXT  %s\n", event.Detail)
+		case "retry":
+			fmt.Fprintf(statusOutput, "  RETRY  %s\n", event.Detail)
 		case "usage":
 			if interactive {
 				raw, _ := json.Marshal(event.Raw)
@@ -431,6 +438,7 @@ func run(ctx context.Context, args []string) error {
 		eventMu.Lock()
 		renderedText, thinking, reasoningOpen, toolCount = false, false, false, 0
 		lastUsage = nil
+		clear(toolStarted)
 		renderer = newTextRenderer(os.Stdout, colored, width)
 		eventMu.Unlock()
 		start := time.Now()
@@ -531,7 +539,11 @@ func run(ctx context.Context, args []string) error {
 				fmt.Fprintln(statusOutput, "Usage: ! <command>")
 				continue
 			}
-			turn, cmdErr := c.RunChatCommand(ctx, chat.ID, cmdStr)
+			commandCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+			setTurnCancel(stop)
+			turn, cmdErr := c.RunChatCommand(commandCtx, chat.ID, cmdStr)
+			setTurnCancel(nil)
+			stop()
 			if cmdErr != nil {
 				fmt.Fprintf(statusOutput, "Command error: %v\n", cmdErr)
 			} else {
@@ -702,11 +714,6 @@ func run(ctx context.Context, args []string) error {
 				chat, commandErr = c.GetChat(ctx, chat.ID)
 				if commandErr != nil {
 					fmt.Fprintln(statusOutput, commandErr)
-				} else if name == "/pin" || name == "/unpin" || name == "/repomap" {
-					system, customSystem, agent, commandErr = chatSystemPrompt(ctx, c, chat)
-					if commandErr != nil {
-						fmt.Fprintln(statusOutput, commandErr)
-					}
 				}
 			}
 			continue
@@ -763,24 +770,8 @@ func chatSystemPrompt(ctx context.Context, c *core.Core, chat *core.Chat) (strin
 	if chat.Settings.SkillsV2 == nil {
 		system = core.ResolveSkillsPrefix(chat.Settings.Skills) + "\n" + system
 	}
-	for _, rel := range chat.Settings.PinnedFiles {
-		fullPath := rel
-		if !filepath.IsAbs(fullPath) {
-			fullPath = filepath.Join(chat.WorkspacePath, fullPath)
-		}
-		if content, err := os.ReadFile(fullPath); err == nil {
-			const maxPinnedSize = 64 * 1024
-			if len(content) > maxPinnedSize {
-				content = append(content[:maxPinnedSize], []byte("\n... [Pinned file truncated]")...)
-			}
-			system += fmt.Sprintf("\n\n---\n[Pinned Context: %s]\n%s\n", rel, string(content))
-		}
-	}
-	if chat.Settings.RepoMap {
-		if rMap := c.WorkspaceRepoMap(chat.WorkspacePath, 800); rMap != "" {
-			system += "\n\n---\n" + rMap + "\n"
-		}
-	}
+	// The core injects pinned files and repository metadata per request, so
+	// resumed sessions never bake an outdated copy into their system message.
 	return strings.TrimSpace(system), customSystem, agent, nil
 }
 
@@ -1055,6 +1046,9 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		if fi.IsDir() {
 			return fmt.Errorf("pin: %s is a directory", cleanPath)
 		}
+		if !fi.Mode().IsRegular() {
+			return errors.New("pin: choose a regular text file")
+		}
 		rel, err := filepath.Rel(chat.WorkspacePath, fullPath)
 		if err != nil || strings.HasPrefix(rel, "..") {
 			rel = cleanPath
@@ -1064,6 +1058,9 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 				fmt.Fprintf(output, "File already pinned: %s\n", rel)
 				return nil
 			}
+		}
+		if len(chat.Settings.PinnedFiles) >= 20 {
+			return errors.New("at most 20 pinned files per chat; use /unpin to remove one")
 		}
 		err = c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) {
 			s.PinnedFiles = append(s.PinnedFiles, rel)

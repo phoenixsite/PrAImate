@@ -5,11 +5,10 @@ package core
 // directory (the same "CLI basics" affordance terminal users get for
 // free). The command and its output are persisted as chat messages
 // (role "user" / role "command") so the transcript stays complete and
-// the agent can see the output on later turns via the resumed session's
-// own context — but the command itself is NEVER sent to the model.
+// the native agent can see a bounded, redacted record on later turns. Running
+// the command itself does not make a model request.
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -45,6 +44,18 @@ func (c *Core) RunChatCommand(ctx context.Context, chatID, command string) (*Cha
 	if err != nil {
 		return nil, err
 	}
+	if chat.CLIAgent == "praimate-cli" {
+		var release func()
+		ctx, release, err = c.nativeLease(ctx, "chat."+chatID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		chat, err = c.GetChat(ctx, chatID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	cwd := chat.WorkspacePath
 	if cwd == "" || cwd == "." {
 		home, err := os.UserHomeDir()
@@ -68,18 +79,21 @@ func (c *Core) RunChatCommand(ctx context.Context, chatID, command string) (*Cha
 		cmd = exec.CommandContext(cctx, "sh", "-c", command)
 	}
 	hideConsole(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = cwd
-	var out bytes.Buffer
+	out := limitedBuffer{limit: chatCommandMaxOutput}
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
 	start := time.Now()
 	runErr := cmd.Run()
-	text := strings.TrimRight(out.String(), "\n")
-	if len(text) > chatCommandMaxOutput {
-		text = text[:chatCommandMaxOutput] + "\n… (output truncated)"
+	text := strings.TrimRight(strings.ToValidUTF8(out.String(), ""), "\n")
+	if out.truncated {
+		text += "\n… (output truncated)"
 	}
 	switch {
+	case cctx.Err() == context.Canceled:
+		text += "\n[cancelled]"
 	case cctx.Err() == context.DeadlineExceeded:
 		text += fmt.Sprintf("\n[killed after %s]", chatCommandTimeout)
 	case runErr != nil:
@@ -94,7 +108,14 @@ func (c *Core) RunChatCommand(ctx context.Context, chatID, command string) (*Cha
 		text = "(no output)"
 	}
 
-	if _, err := c.AddMessage(ctx, chatID, "command", text, map[string]any{"kind": "command"}); err != nil {
+	// Cancellation stops execution, not the durable record of actions/output.
+	persistCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer stop()
+	meta := map[string]any{"kind": "command", "command": command}
+	if cctx.Err() != nil {
+		meta["interrupted"] = true
+	}
+	if _, err := c.AddMessage(persistCtx, chatID, "command", text, meta); err != nil {
 		return nil, fmt.Errorf("persist command output: %w", err)
 	}
 	return &ChatTurn{

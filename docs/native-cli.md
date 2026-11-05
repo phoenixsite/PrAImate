@@ -86,7 +86,15 @@ automatic mode asks the backend with that input intact instead of rejecting it
 based on the heuristic. A real backend rejection remains authoritative.
 
 The transport requests streaming usage when supported and retries without that
-optional field only if the endpoint explicitly rejects it. A context-length HTTP
+optional field only if the endpoint explicitly rejects it. Backends returning a
+complete JSON completion instead of an event stream are also accepted, with the
+same usage, tool-call validation and output-limit recovery. This does not trigger
+a second generation request. HTTP 429, 500, 502, 503 and 504 responses receive at
+most two retries before any output is accepted; retry progress is visible and
+Ctrl+C cancels the wait. Authentication errors and broken partial streams are
+not automatically retried.
+
+A context-length HTTP
 rejection allows one recovery attempt per model step with a more conservative
 budget and any physical window reported by the backend. Automatic mode
 reduces the output allowance and increases the input estimate; fixed mode
@@ -175,7 +183,16 @@ larger inputs. Terminal control characters in model/tool output are filtered.
 
 Interactive commands: `/help`, `/status`, `/context [auto|WINDOW [OUTPUT]]`, `/models`, `/model [ID]`,
 `/tools [LEVEL]`, `/attach PATH`, `/attachments`, `/detach [N|all]`, `/mcp`, `/skills`,
-`/sessions`, `/compact`, `/clear`, `/exit`. Without an argument, `/model`,
+`/pin PATH`, `/pinned`, `/unpin PATH|N|all`, `/repomap [on|off|refresh]`,
+`/diff [--stat|--staged]`, `/export [PATH]`, `/sessions`, `/compact`, `/clear`, `/exit`.
+Use `! COMMAND` to run an explicit shell command through the core; Ctrl+C cancels
+that command while retaining the chat and partial output. Capture is limited
+during execution to 16 KiB; extra output is discarded with a notice. Commands run
+directly without a model request. In native chats, their bounded, privacy-redacted
+results enter model context on the next turn, including commands run before the
+first model response. Results are checkpointed once, so reopens/retries do not
+insert them again. Native commands cannot run concurrently with a model turn in
+the same chat. Without an argument, `/model`,
 `/tools` and `/detach` open a numbered selector; `/sessions` lets you switch
 native chats. Type `n`/`p` for another page or Enter to cancel. Switching chats
 clears queued attachments. Selecting a session, or reopening one interactively
@@ -193,7 +210,23 @@ excerpts and the latest user request/images. It is lossy, not a semantic summary
 Explicit `/compact` replaces old model history with excerpts and **drops old
 images**; attach them again if needed. Native
 checkpoints and renewable run leases live in the encrypted core database.
-Interrupted tool calls are not replayed automatically.
+Interrupted tool calls are not replayed automatically. Compaction receipts retain
+the original goal and recent corrections, workspace-relative file paths, command
+arguments, progress and explicit tool failures. Requested edits are not treated
+as confirmed modifications.
+
+`/pin PATH` keeps a selected text file available across turns. The core reloads
+pinned content for every model request, including resumed Desktop and Studio
+chats; `/unpin` takes effect on the next request. Reads are bounded to 64 KiB of
+text across up to 20 files per request, with explicit notices for truncation or
+unavailable files. Optional pinned/repository context is shortened further when
+necessary to leave room for the current request, tool schemas and model output;
+use `read_file` to inspect additional targeted ranges. Mandatory instructions and
+the user's current request are preserved. Binary files should use attachments. `/repomap on` (or
+`--repomap`) includes a small repository map; file edits and additions refresh
+its symbols automatically. `/repomap off` removes it from subsequent requests.
+Neither feature restarts the conversation or stores stale copies in new native
+checkpoints. The map uses the native token estimate and is bounded to 800 tokens.
 
 Use repeatable `--attach PATH` flags or `/attach PATH` (one path per command;
 spaces and optional quotes supported). `/attachments` lists the next message's
@@ -214,7 +247,9 @@ are **not text-redacted**; attach only content you want sent to that endpoint.
 `--format json` emits newline-delimited core events, including a core chat ID,
 text/reasoning deltas, correlated tool start/end events, structured `context`
 and `usage` data in `raw`, and failure status. Interactive text mode shows a compact model/permissions header, attachments,
-last-input context meter and a completion/cancellation/failure summary.
+last-input context meter and a completion/cancellation/failure summary. Completed
+tools show their duration; commands and tool failures show a bounded output
+preview, while successful file reads keep scrollback compact.
 `NO_COLOR` disables styling. Usage is shown when the endpoint reports it; `--show-reasoning` also displays reasoning text.
 Errors, truncated responses and exhausted tool-turn budgets produce a nonzero
 exit code for single-shot/JSON runs. The interactive prompt remains available

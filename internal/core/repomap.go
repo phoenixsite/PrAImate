@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,9 +18,18 @@ import (
 )
 
 type repoMapCacheEntry struct {
-	content string
-	modTime time.Time
+	files  []repoMapFile
+	usedAt time.Time
 }
+
+type repoMapFile struct {
+	relPath string
+	size    int64
+	modTime time.Time
+	symbols []string
+}
+
+const maxRepoMapWorkspaces = 16
 
 var (
 	repoMapMu    sync.RWMutex
@@ -35,109 +45,148 @@ var (
 // GenerateRepoMap scans a workspace directory and builds a compact ambient
 // map of files and public symbols (types, functions, exports), bounded by maxTokens.
 func GenerateRepoMap(workspace string, maxTokens int) string {
-	if workspace == "" || workspace == "." {
-		workspace, _ = os.Getwd()
-	}
-	cleanWs := filepath.Clean(workspace)
-
-	fi, err := os.Stat(cleanWs)
-	if err != nil || !fi.IsDir() {
+	cleanWs, err := repoMapWorkspace(workspace)
+	if err != nil {
 		return ""
 	}
+	root, err := os.OpenRoot(cleanWs)
+	if err != nil {
+		return ""
+	}
+	defer root.Close()
 
 	repoMapMu.RLock()
-	cached, ok := repoMapCache[cleanWs]
+	cached := repoMapCache[cleanWs]
 	repoMapMu.RUnlock()
-	if ok && fi.ModTime().Equal(cached.modTime) && cached.content != "" {
-		return cached.content
+	previous := make(map[string]repoMapFile, len(cached.files))
+	for _, file := range cached.files {
+		previous[file.relPath] = file
 	}
 
-	maxBytes := maxTokens * 4
-	if maxBytes <= 0 {
-		maxBytes = 3200 // default ~800 tokens
+	if maxTokens <= 0 {
+		maxTokens = 800
 	}
 
-	type fileInfo struct {
-		relPath string
-		symbols []string
-	}
-
-	var files []fileInfo
+	var files []repoMapFile
 	ignoredDirs := map[string]bool{
 		".git": true, ".gemini": true, "node_modules": true, "vendor": true,
 		"dist": true, "bin": true, "build": true, ".idea": true, ".vscode": true,
 		"tmp": true, "target": true, "coverage": true, ".praimate": true,
 	}
 
-	_ = filepath.WalkDir(cleanWs, func(path string, d fs.DirEntry, err error) error {
+	// Directory mtime does not change when an existing nested file is edited.
+	// Recheck bounded metadata, reusing parsed symbols only for unchanged files.
+	visited := 0
+	_ = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
+		visited++
+		if visited > 4096 {
+			return fs.SkipAll
+		}
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if strings.HasPrefix(name, ".") && name != "." || ignoredDirs[name] {
+			if path != "." && (strings.HasPrefix(name, ".") || ignoredDirs[name]) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		rel, err := filepath.Rel(cleanWs, path)
-		if err != nil || rel == "." {
+		// Ambient discovery never follows symlinks or opens special files.
+		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel = filepath.ToSlash(rel)
 		ext := strings.ToLower(filepath.Ext(path))
-
 		switch ext {
-		case ".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".java", ".c", ".h", ".cpp":
-			syms := extractSymbols(path, ext)
-			files = append(files, fileInfo{relPath: rel, symbols: syms})
-		case ".md", ".json", ".yaml", ".yml", ".toml", ".sql":
-			files = append(files, fileInfo{relPath: rel})
+		case ".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".java", ".c", ".h", ".cpp", ".md", ".json", ".yaml", ".yml", ".toml", ".sql":
+		default:
+			return nil
 		}
+		info, err := d.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		file := repoMapFile{relPath: path, size: info.Size(), modTime: info.ModTime()}
+		if old, ok := previous[path]; ok && old.size == file.size && old.modTime.Equal(file.modTime) {
+			file.symbols = old.symbols
+		} else {
+			switch ext {
+			case ".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".rs":
+				file.symbols = extractSymbols(root, path, ext)
+			}
+		}
+		files = append(files, file)
 		if len(files) >= 120 {
 			return fs.SkipAll
 		}
 		return nil
 	})
 
+	repoMapMu.Lock()
+	if _, exists := repoMapCache[cleanWs]; !exists && len(repoMapCache) >= maxRepoMapWorkspaces {
+		var oldest string
+		for key, entry := range repoMapCache {
+			if oldest == "" || entry.usedAt.Before(repoMapCache[oldest].usedAt) {
+				oldest = key
+			}
+		}
+		delete(repoMapCache, oldest)
+	}
+	repoMapCache[cleanWs] = repoMapCacheEntry{files: files, usedAt: time.Now()}
+	repoMapMu.Unlock()
+
 	if len(files) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("[Ambient Repo Map: %s]\n", filepath.Base(cleanWs)))
+	header := fmt.Sprintf("[Ambient Repo Map: %s]\n", filepath.Base(cleanWs))
+	used := nativeTextTokens(header)
+	if used > maxTokens {
+		return ""
+	}
+	b.WriteString(header)
 
-	for _, f := range files {
+	for i, f := range files {
 		line := "  " + f.relPath
 		if len(f.symbols) > 0 {
 			line += " (" + strings.Join(f.symbols, ", ") + ")"
 		}
 		line += "\n"
-		if b.Len()+len(line) > maxBytes-60 {
-			b.WriteString(fmt.Sprintf("  ... [%d more files omitted for budget]\n", len(files)))
+		cost := nativeTextTokens(line)
+		if used+cost > maxTokens {
+			omitted := fmt.Sprintf("  ... [%d more files omitted for budget]\n", len(files)-i)
+			if used+nativeTextTokens(omitted) <= maxTokens {
+				b.WriteString(omitted)
+			}
 			break
 		}
 		b.WriteString(line)
+		used += cost
 	}
 
-	result := strings.TrimRight(b.String(), "\n")
-
-	repoMapMu.Lock()
-	repoMapCache[cleanWs] = repoMapCacheEntry{content: result, modTime: fi.ModTime()}
-	repoMapMu.Unlock()
-
-	return result
+	return strings.TrimRight(b.String(), "\n")
 }
 
-func extractSymbols(fullPath, ext string) []string {
-	data, err := os.ReadFile(fullPath)
-	if err != nil || len(data) == 0 || len(data) > 256*1024 {
+func extractSymbols(root *os.Root, path, ext string) []string {
+	f, err := root.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	const maxSize = 256 * 1024
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxSize {
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxSize+1))
+	if err != nil || len(data) == 0 || len(data) > maxSize {
 		return nil
 	}
 	var symbols []string
 	if ext == ".go" {
 		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, fullPath, data, parser.SkipObjectResolution)
+		f, err := parser.ParseFile(fset, path, data, parser.SkipObjectResolution)
 		if err == nil {
 			for _, decl := range f.Decls {
 				if len(symbols) >= 6 {
@@ -180,10 +229,22 @@ func (c *Core) WorkspaceRepoMap(workspace string, maxTokens int) string {
 
 // InvalidateRepoMap clears the cached repo map for a workspace.
 func InvalidateRepoMap(workspace string) {
-	if workspace == "" || workspace == "." {
-		workspace, _ = os.Getwd()
+	path, err := repoMapWorkspace(workspace)
+	if err != nil {
+		return
 	}
 	repoMapMu.Lock()
-	delete(repoMapCache, filepath.Clean(workspace))
+	delete(repoMapCache, path)
 	repoMapMu.Unlock()
+}
+
+func repoMapWorkspace(workspace string) (string, error) {
+	if workspace == "" {
+		workspace = "."
+	}
+	path, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(path)
 }

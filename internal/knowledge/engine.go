@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -66,13 +65,7 @@ func rootRename(root *os.Root, oldName, newName string) error {
 	if root == nil {
 		return errors.New("nil root")
 	}
-	err := root.Rename(oldName, newName)
-	if err != nil && root.Name() != "" {
-		oldPath := filepath.Join(root.Name(), filepath.FromSlash(oldName))
-		newPath := filepath.Join(root.Name(), filepath.FromSlash(newName))
-		if fbErr := os.Rename(oldPath, newPath); fbErr == nil {
-			return nil
-		}
-	}
-	return err
+	// Preserve Root's symlink/path checks. Falling back to an absolute Rename
+	// would bypass a rejected destination and could write outside knowledge.
+	return root.Rename(oldName, newName)
 }

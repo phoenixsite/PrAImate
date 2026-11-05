@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateChat_AutoSlugAndDefaults(t *testing.T) {
@@ -34,6 +35,21 @@ func TestCreateChat_RejectsMissingCLIAgent(t *testing.T) {
 	c := newMemCore(t)
 	if _, err := c.CreateChat(context.Background(), CreateChatRequest{Title: "x"}); err == nil {
 		t.Fatal("expected CLIAgent-required error")
+	}
+}
+
+func TestChatIDsAreUniqueWithSameTitleAndTimestamp(t *testing.T) {
+	stamp := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	seen := make(map[string]bool)
+	for range 100 {
+		id := chatID(stamp, "Repeated title")
+		if seen[id] {
+			t.Fatalf("same-title chats in the same clock tick collide: %s", id)
+		}
+		seen[id] = true
+		if !strings.HasPrefix(id, "20261105-100000-") || !strings.Contains(id, "repeated-title") {
+			t.Fatalf("chat ID lost its readable timestamp/title: %s", id)
+		}
 	}
 }
 

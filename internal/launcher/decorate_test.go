@@ -24,8 +24,8 @@ func freshWorkspace(t *testing.T, settings WorkspaceSettings) Workspace {
 	root := t.TempDir()
 	t.Cleanup(func() {
 		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err == nil && info != nil {
-				_ = os.Chmod(path, 0666)
+			if err == nil && info != nil && info.Mode().IsRegular() {
+				_ = os.Chmod(path, info.Mode().Perm()|0600)
 			}
 			return nil
 		})
@@ -151,8 +151,8 @@ func TestDecorate_OnlineSkillsClonedIntoClaudeSkillsDir(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "demoskill")
 	t.Cleanup(func() {
 		_ = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-			if err == nil && info != nil {
-				_ = os.Chmod(path, 0666)
+			if err == nil && info != nil && info.Mode().IsRegular() {
+				_ = os.Chmod(path, info.Mode().Perm()|0600)
 			}
 			return nil
 		})

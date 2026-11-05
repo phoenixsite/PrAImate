@@ -453,6 +453,9 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 		Approval:     effective.Approval,
 		Env:          effective.Env,
 	}
+	if effective.native != nil {
+		effective.native.systemPrompt = &shotOpts.SystemPrompt
+	}
 	resuming := chat.SessionID != "" && adapter.SupportsResume()
 	requestSystem := shotOpts.SystemPrompt
 	if resuming {

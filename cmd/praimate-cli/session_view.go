@@ -141,3 +141,27 @@ func (v sessionView) finish(elapsed time.Duration, tools int, usage *core.Native
 	}
 	fmt.Fprintln(v.out, v.style(line, code))
 }
+
+// Command output and failures should be visible without expanding every file
+// read into scrollback. The core already redacts and bounds event details.
+func (v sessionView) toolResult(event core.StreamEvent, elapsed time.Duration) {
+	state, code := "✓ done", "2"
+	if !event.OK {
+		state, code = "✗ failed", "31"
+	}
+	label := "  " + state + "  " + event.Tool
+	if elapsed > 0 {
+		label += " · " + elapsed.Round(time.Millisecond).String()
+	}
+	fmt.Fprintln(v.out, v.style(label, code))
+	if event.Detail == "" || (event.OK && event.Tool != "run_command" && event.Tool != "git_inspect") {
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(cleanTerminalText(event.Detail)), "\n")
+	for _, line := range lines[:min(4, len(lines))] {
+		fmt.Fprintln(v.out, v.style("    "+truncateRunes(line, max(20, min(v.width-8, 160))), code))
+	}
+	if len(lines) > 4 {
+		fmt.Fprintln(v.out, v.style("    … output preview truncated", "2"))
+	}
+}

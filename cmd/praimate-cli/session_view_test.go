@@ -26,6 +26,25 @@ func TestSessionViewShowsHonestCompletionState(t *testing.T) {
 	}
 }
 
+func TestSessionViewShowsToolFailuresAndBoundedCommandOutput(t *testing.T) {
+	var out bytes.Buffer
+	v := sessionView{out: &out, width: 60}
+	v.toolResult(core.StreamEvent{Tool: "edit_file", Detail: "Tool failed: target string was not found\x1b]52;c;injection\a"}, 250*time.Millisecond)
+	if got := out.String(); !strings.Contains(got, "target string was not found") || !strings.Contains(got, "250ms") || strings.ContainsAny(got, "\x1b\a") {
+		t.Fatalf("missing or unsafe tool failure details: %q", got)
+	}
+	out.Reset()
+	v.toolResult(core.StreamEvent{Tool: "run_command", OK: true, Detail: strings.Repeat("command output\n", 20)}, time.Second)
+	if got := out.String(); !strings.Contains(got, "command output") || !strings.Contains(got, "preview truncated") || strings.Count(got, "\n") > 6 {
+		t.Fatalf("command output was hidden or unbounded: %q", got)
+	}
+	out.Reset()
+	v.toolResult(core.StreamEvent{Tool: "read_file", OK: true, Detail: "large file contents"}, time.Second)
+	if strings.Contains(out.String(), "large file contents") {
+		t.Fatal("successful reads should not flood scrollback")
+	}
+}
+
 func TestSessionViewSanitizesMetadataAndRespectsNoColor(t *testing.T) {
 	var out bytes.Buffer
 	v := sessionView{out: &out, width: 80}

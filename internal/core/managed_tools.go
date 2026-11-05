@@ -736,11 +736,16 @@ func managedCommandEnv() []string {
 type limitedBuffer struct {
 	b         bytes.Buffer
 	truncated bool
+	limit     int // zero retains the managed-tool output limit
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	n := len(p)
-	remaining := managedOutputLimit - b.b.Len()
+	limit := b.limit
+	if limit <= 0 {
+		limit = managedOutputLimit
+	}
+	remaining := limit - b.b.Len()
 	if remaining > 0 {
 		if len(p) > remaining {
 			_, _ = b.b.Write(p[:remaining])
