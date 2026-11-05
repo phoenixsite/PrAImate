@@ -24,10 +24,32 @@ case "$1" in
   run)
     grep -q 'praimate:host-tls' src/provider/provider.ts
     test -f src/provider/praimate-host-tls.ts
-    mkdir -p dist/test/bin
-    : > dist/test/bin/opencode
-    : > dist/test/bin/opencode.exe
-    chmod +x dist/test/bin/opencode dist/test/bin/opencode.exe
+    target=''
+    baseline=0
+    for arg in "$@"; do
+      case "$arg" in
+        --target=*) target="${arg#--target=}" ;;
+        --baseline) baseline=1 ;;
+      esac
+    done
+    case "$target" in *-amd64) target="${target%-amd64}-x64" ;; esac
+    ext=''
+    case "$target" in windows-*) ext='.exe' ;; esac
+    mkdir -p "dist/opencode-$target/bin"
+    printf '%s\n' "$target" > "dist/opencode-$target/bin/opencode$ext"
+    chmod +x "dist/opencode-$target/bin/opencode$ext"
+    if [ "$baseline" = 1 ]; then
+      mkdir -p "dist/opencode-$target-baseline/bin"
+      printf '%s\n' "$target-baseline" > "dist/opencode-$target-baseline/bin/opencode$ext"
+      chmod +x "dist/opencode-$target-baseline/bin/opencode$ext"
+      case "$target" in
+        linux-*)
+          mkdir -p "dist/opencode-$target-baseline-musl/bin"
+          printf '%s\n' 'wrong-musl-ABI' > "dist/opencode-$target-baseline-musl/bin/opencode"
+          chmod +x "dist/opencode-$target-baseline-musl/bin/opencode"
+          ;;
+      esac
+    fi
     ;;
   */praimate-code-tls.mjs)
     exec node "$@"
@@ -48,6 +70,18 @@ PATH="$TEST_TMP/bin:$PATH" XDG_CONFIG_HOME="$TEST_TMP/config" OUT="$TEST_TMP/out
 
 test -x "$TEST_TMP/out/praimate-code"
 echo "praimate-code public assets: ok"
+
+# Upstream --baseline also emits a musl variant. Never select it for the
+# glibc release, even when directory iteration puts it before the native one.
+cat > "$TEST_TMP/bin/find" <<'EOF'
+#!/usr/bin/env bash
+/usr/bin/find "$@" | LC_ALL=C sort
+EOF
+chmod +x "$TEST_TMP/bin/find"
+PATH="$TEST_TMP/bin:$PATH" PRAIMATE_CODE_TARGET=linux-amd64 XDG_CONFIG_HOME="$TEST_TMP/config" OUT="$TEST_TMP/baseline-out" BASELINE=1 \
+  bash "$REPO_ROOT/scripts/build-praimate-code.sh" >/dev/null
+test "$(cat "$TEST_TMP/baseline-out/praimate-code-baseline")" = 'linux-x64-baseline'
+echo "praimate-code baseline ABI selection: ok"
 
 cat > "$TEST_TMP/bin/go" <<'EOF'
 #!/usr/bin/env bash

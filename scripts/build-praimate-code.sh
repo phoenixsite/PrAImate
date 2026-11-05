@@ -194,14 +194,15 @@ fi
 # target for this platform; the find below picks the right one.
 ( cd "$SRC/packages/opencode" && bun run build $BUILD_FLAGS )
 
-# build.ts emits dist/<name>/bin/opencode — find the variant we want.
-if [ "$BASELINE" = 1 ]; then
-  BUILT="$(find "$SRC/packages/opencode/dist" -type f -path "*baseline*" -name "opencode$EXT" 2>/dev/null | head -1)"
-else
-  BUILT="$(find "$SRC/packages/opencode/dist" -type f -not -path "*baseline*" -name "opencode$EXT" 2>/dev/null | head -1)"
-fi
-if [ -z "$BUILT" ]; then
-  echo "error: could not find built opencode binary under $SRC/packages/opencode/dist"
+# --baseline also emits a musl binary on Linux. Directory iteration order
+# cannot choose the ABI: Desktop's Linux release uses the native glibc target.
+BUN_ARCH="$GOARCH"
+[ "$GOARCH" = amd64 ] && BUN_ARCH=x64
+VARIANT="opencode-$GOOS-$BUN_ARCH"
+[ "$BASELINE" = 1 ] && VARIANT="$VARIANT-baseline"
+BUILT="$SRC/packages/opencode/dist/$VARIANT/bin/opencode$EXT"
+if [ ! -f "$BUILT" ]; then
+  echo "error: expected built opencode variant is missing: $BUILT"
   exit 1
 fi
 
