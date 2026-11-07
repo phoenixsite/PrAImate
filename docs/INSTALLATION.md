@@ -1,6 +1,6 @@
 # Install Desktop, Server or Android
 
-Choose your product before downloading from the [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.0):
+Choose your product before downloading from the [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.1):
 
 | Product | Install it on | What it does |
 |---|---|---|
@@ -138,7 +138,7 @@ and [Cloudflare setup](REMOTE-SERVER.md#cloudflare-tunnel-and-optional-access).
 ## Android preview
 
 1. Install and start **Server**. A Desktop-only installation cannot serve Android.
-2. Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.0/praimate-mobile-preview.apk)**
+2. Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.1/praimate-mobile-preview.apk)**
    onto the device and open it. Android may ask you to allow installation from
    your browser or file manager.
 3. Add the server's HTTPS origin. Complete Cloudflare Access login first if
@@ -163,7 +163,7 @@ device/account validation; automated checks are described in that guide.
 
 ## Choose a release asset
 
-The [1.3.0 release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.0)
+The [1.3.1 release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.1)
 contains both editions. For newer versions, select a compatible entry in
 [Releases](https://github.com/sPROFFEs/PrAImate/releases).
 

@@ -8,7 +8,7 @@ cancel server jobs. Native VS Code/VSCodium windows are not screen-streamed.
 
 ## Install the published APK
 
-Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.0/praimate-mobile-preview.apk)**
+Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.1/praimate-mobile-preview.apk)**
 from the combined release. You do not need the Android SDK or a source build to
 use it. Android may ask you to allow installation from your browser/file manager.
 The APK requires Android 8.0+ and a current Android System WebView; isolated
@@ -119,7 +119,17 @@ settings. Chats, worker runs and configuration use the shared application views.
 Studio and agent authoring switch between files, editor and assistant panels
 instead of shrinking three desktop columns onto a phone. Project windows open
 as separate Android activities; Back returns to the previous workspace. Terminal
-sessions include an extra row for Escape, Tab, control keys and arrows.
+sessions include a normal text field for the Android keyboard, a **Send ↵**
+button, and an extra row for Enter, Escape, Tab, control keys and arrows. Sending
+uses the existing server PTY and preserves Unicode and bracketed paste. The
+draft remains available if delivery fails; commands are never retried
+automatically. If another connection owns the terminal, use **Take control**
+before explicitly sending again.
+
+The mobile interface uses the existing Android back stack for Studio. Desktop
+Detach controls are hidden on mobile; chats, Code and worker activity stay in
+their main views. Reopening an already paired server shows a connection state
+until its saved session is ready, without flashing the pairing form.
 
 Each server remembers its last page and selected conversation, worker, terminal
 or workspace. Closed terminals are not restarted automatically. Returning to the
