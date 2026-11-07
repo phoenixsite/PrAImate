@@ -1,5 +1,9 @@
 # Releasing PrAImate on GitHub
 
+This checkout is the desktop-only `main` branch. Combined Desktop/Server/Android
+releases are built on `server`; see the [combined release guide](https://github.com/sPROFFEs/PrAImate/blob/server/docs/RELEASE-GITHUB.md).
+For installation and release package selection, see [INSTALLATION.md](INSTALLATION.md).
+
 PrAImate release bundles contain the Desktop GUI, `praimate` bootstrap,
 `praimate-cli` terminal frontend, `wpc`, samples and documentation. The build
 script refuses archives without the GUI.

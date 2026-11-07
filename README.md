@@ -23,31 +23,99 @@ permissions, skills, MCP, context and encrypted sessions. See the
 [native CLI guide](docs/native-cli.md) for local models, routers, terminal
 commands and permission boundaries.
 
+## Choose your edition
+
+| Product | Use it for | Package |
+|---|---|---|
+| **Desktop** | Local GUI, CLIs, Studio, agents and workers on your workstation | `praimate-<platform>` |
+| **Server** | The same workspace with browser/Android access and optional headless execution | `praimate-server-<platform>` |
+| **Android preview** | Control a running Server from your phone or tablet | `praimate-mobile-preview.apk` |
+
+The `main` branch remains desktop-only; Server and Android are developed on
+`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.27)
+provides both application editions and the APK. Shared standalone CLI/tools are
+published once per platform; application archives are self-contained.
+
+Start with the **[installation guide](docs/INSTALLATION.md)** for edition
+selection, downloads, first launch, remote connections and separate profiles.
+
 ## Supported systems
 
 - Linux amd64 (release archive)
 - Windows amd64 and arm64 (release archives)
-- macOS Apple Silicon / arm64 (release target)
+- macOS Intel / amd64 and Apple Silicon / arm64 (release archives)
 - Linux arm64 source builds where the required native WebKitGTK toolchain is
   available
 
-The macOS build targets Apple Silicon; Intel Mac archives are not provided.
-Running `praimate` opens the desktop application. `praimate-cli` provides the
-shared native terminal frontend.
+- Android 8.0+ with a current System WebView (client APK; requires Server)
+
+Both Desktop and Server have the same desktop platform coverage. Cloudflare
+Access login on Android requires Android 9+. `praimate` opens the installed
+edition's GUI; `praimate-cli` is the shared native terminal frontend.
 
 ## Install
 
-Linux:
+### Desktop
+
+Linux or macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/praimate/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.sh | bash -s -- --binary --edition desktop --user
 ```
 
 Windows PowerShell:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/sPROFFEs/praimate/main/scripts/install.ps1 | iex
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.ps1 -OutFile "$env:TEMP\praimate-install.ps1"
+& "$env:TEMP\praimate-install.ps1" -Mode Binary -Edition Desktop
 ```
+
+### Server
+
+Linux or macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.sh | bash -s -- --binary --edition server --user
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.ps1 -OutFile "$env:TEMP\praimate-install.ps1"
+& "$env:TEMP\praimate-install.ps1" -Mode Binary -Edition Server
+```
+
+Both commands use the edition-aware installer from `server`; the edition option
+selects the application package. Installing another edition into the same prefix
+replaces that installation. See [side-by-side prefixes and profiles](docs/INSTALLATION.md#keep-both-editions-on-one-computer)
+to keep both.
+
+For a new Server profile, start without a display:
+
+```sh
+praimate server --initialize-db --listen 127.0.0.1:8844 --db-password-stdin --pair
+```
+
+Omit `--initialize-db` on subsequent starts or for an existing database. The
+console prints a one-use pairing code. Remote devices need a public HTTPS origin:
+use [Cloudflare Tunnel and optional Access](docs/REMOTE-SERVER.md#cloudflare-tunnel-and-optional-access)
+or [direct TLS/reverse-proxy setup](docs/REMOTE-SERVER.md#network-configuration).
+`127.0.0.1` is local to the host, not the address to enter on a remote phone.
+The [Server guide](docs/REMOTE-SERVER.md) covers GUI startup and persistent services.
+
+### Android preview
+
+Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.27/praimate-mobile-preview.apk)**,
+install it on Android, add the Server's HTTPS origin and pair with its one-use
+code. If Cloudflare Access is enabled, complete its email/PIN login first.
+Android connects to Server; it cannot use the Desktop-only edition as a backend.
+Models, CLIs and jobs stay on the host.
+
+The app offers manual update checks and optional daily checks on opening, with
+checksum/signature verification and Android-confirmed installation. See the
+[Android guide](docs/MOBILE-ANDROID.md) for installation, trust and updates.
+
+### Launch, update and remove
 
 Useful commands:
 
@@ -78,6 +146,9 @@ interactive terminal prompts for it with input echo disabled. See the
 
 The installer supports binary/source, user/system, and uninstall modes:
 
+These mode examples use the Desktop default. Add `--edition server` or
+`-Edition Server` when installing Server.
+
 ```sh
 ./scripts/install.sh --binary
 ./scripts/install.sh --source
@@ -95,7 +166,9 @@ The installer supports binary/source, user/system, and uninstall modes:
 .\scripts\install.ps1 -Uninstall -Purge
 ```
 
-Normal uninstall keeps PrAImate data. Purge removes it.
+Normal uninstall keeps PrAImate data. Purge targets default user data locations;
+it does not select a custom profile by binary prefix. For two editions on one
+computer, follow the [installation/profile guide](docs/INSTALLATION.md).
 
 ## First launch and encrypted storage
 
@@ -366,8 +439,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the supported release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.26
-scripts/build.sh --version=1.2.26 --with-code --with-graphify
+scripts/build.sh
+scripts/build.sh --with-code --with-graphify
 ```
 
 Build PrAImate Code from the vendored OpenCode source:
@@ -385,6 +458,9 @@ asset matrix and checksum process.
 
 | Document | Scope |
 |---|---|
+| [Installation](docs/INSTALLATION.md) | Desktop, Server and Android downloads; Windows/Linux/macOS commands; first startup and side-by-side profiles. |
+| [Server](docs/REMOTE-SERVER.md) | Remote host, HTTPS, Cloudflare Tunnel/Access, pairing, services and API boundaries. |
+| [Android](docs/MOBILE-ANDROID.md) | APK installation, connection, certificates, updates and native validation. |
 | [Full guide](docs/GUIDE.md) | Installation, every GUI page, storage, privacy, agents, skills, MCP, local LLMs, sessions, backup, and deletion. |
 | [PrAImate CLI](docs/native-cli.md) | Terminal commands, local model context, tools, skills, sessions and attachments. |
 | [Assistant and Voice](docs/assistant-voice.md) | Optional desktop assistant, permissions, Worker delegation, local dictation and SHA-256 verified model distribution. |

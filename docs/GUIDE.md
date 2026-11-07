@@ -4,7 +4,8 @@
 
 # PrAImate user guide
 
-PrAImate is a desktop harness for Linux, Windows and macOS Apple Silicon.
+PrAImate provides Desktop and an optional Server edition for Linux, Windows and
+macOS Intel/Apple Silicon. The Android preview connects to Server.
 External CLI adapters retain their provider authentication and native sessions.
 PrAImate CLI uses core-owned model routing, tools and encrypted sessions shared
 by Desktop, Studio and its terminal frontend.
@@ -37,17 +38,37 @@ This guide describes the current GUI. Workpath compiler details are kept in
 
 ## Install and launch
 
-Linux:
+Choose **Desktop** for local use or **Server** for browser/Android access.
+Start with the [installation guide](INSTALLATION.md) for all commands, package
+names, first server startup and side-by-side installation. The `main` branch
+contains Desktop; the `server` branch also contains Server and Android.
+
+Linux or macOS, Desktop:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/praimate/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.sh | bash -s -- --binary --edition desktop --user
 ```
 
-Windows PowerShell:
+Linux or macOS, Server instead:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.sh | bash -s -- --binary --edition server --user
+```
+
+Windows PowerShell: download once, then choose one edition:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/sPROFFEs/praimate/main/scripts/install.ps1 | iex
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.ps1 -OutFile "$env:TEMP\praimate-install.ps1"
+& "$env:TEMP\praimate-install.ps1" -Mode Binary -Edition Desktop
+# For Server, use instead:
+& "$env:TEMP\praimate-install.ps1" -Mode Binary -Edition Server
 ```
+
+Both editions use the same default prefix and profile. Use separate prefixes and
+`PRAIMATE_HOME` values to keep both; otherwise a second install replaces the first.
+For Android, install the signed [preview APK](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.27/praimate-mobile-preview.apk)
+and connect it to a running Server using HTTPS and a device pairing code. See
+[Server setup](REMOTE-SERVER.md) and the [Android guide](MOBILE-ANDROID.md).
 
 Launch and maintenance commands:
 
@@ -76,16 +97,19 @@ and [Python example](../examples/praimate_agent_capture.py).
 
 Release target archives:
 
-| System | Archive |
-|---|---|
-| Linux amd64 | `praimate-linux-amd64.tar.gz` |
-| Windows amd64 | `praimate-windows-amd64.zip` |
-| Windows arm64 | `praimate-windows-arm64.zip` |
-| macOS Apple Silicon | `praimate-darwin-arm64.tar.gz` |
+| System | Desktop archive | Server archive |
+|---|---|---|
+| Linux amd64 | `praimate-linux-amd64.tar.gz` | `praimate-server-linux-amd64.tar.gz` |
+| Windows amd64 | `praimate-windows-amd64.zip` | `praimate-server-windows-amd64.zip` |
+| Windows arm64 | `praimate-windows-arm64.zip` | `praimate-server-windows-arm64.zip` |
+| macOS Intel | `praimate-darwin-amd64.tar.gz` | `praimate-server-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `praimate-darwin-arm64.tar.gz` | `praimate-server-darwin-arm64.tar.gz` |
 
 Linux arm64 can be built on a native arm64 host with the GUI dependencies.
-The macOS build requires an Apple Silicon host and the native Apple toolchain.
-Intel Mac archives are not provided. The Unix installer also supports macOS.
+macOS builds require a native Apple toolchain on the target architecture.
+Both Intel and Apple Silicon archives are published. The Unix installer supports
+both. Shared standalone CLI/tools are published once per platform; the APK is a
+client, not a server package.
 
 The Linux installer registers `praimate.desktop` and its icon in
 `${XDG_DATA_HOME:-~/.local/share}` and copies the launcher to the configured
@@ -762,8 +786,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.21
-scripts/build.sh --version=1.2.21 --with-code --with-graphify
+scripts/build.sh
+scripts/build.sh --with-code --with-graphify
 ```
 
 Build only the GUI:
