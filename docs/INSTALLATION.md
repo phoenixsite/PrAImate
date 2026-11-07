@@ -1,6 +1,6 @@
 # Install Desktop, Server or Android
 
-Choose your product before downloading from the [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.27):
+Choose your product before downloading from the [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.28):
 
 | Product | Install it on | What it does |
 |---|---|---|
@@ -61,8 +61,25 @@ replaces its binaries. To keep both on one machine, use the
 
 ### Start with the GUI
 
-After installing Server, `praimate` opens its GUI. Enable a local browser/API
-listener at startup with:
+After installing Server, `praimate` opens its GUI with a **SERVER** edition label
+and a **Server** entry in the sidebar. No environment variables are required:
+
+1. Open **Server** (or **Settings → Configure Server**).
+2. Set the listen address, normally `127.0.0.1:8844` for Cloudflare Tunnel.
+   For a network listener, also supply TLS certificate and private-key file paths
+   on the Server host. Optionally enable automatic startup after database unlock.
+3. Choose **Save Server settings**, then **Start remote access**. Saving settings
+   alone does not start or restart the listener.
+4. Configure **Cloudflare Tunnel** on the same page, or use your direct HTTPS
+   endpoint. Under **Pairing and devices**, create a code for the Android app.
+
+The page displays the active local origin and public hostname, supports listener
+restart/stop, and lists paired devices with access revocation. **Stop access**
+leaves local chats, workers, and terminals running. Changing a running listener
+requires **Apply settings / restart** and disconnects remote clients.
+
+For scripted startup, flags and environment variables remain supported and take
+precedence over saved settings:
 
 ```sh
 PRAIMATE_REMOTE_LISTEN=127.0.0.1:8844 praimate
@@ -73,10 +90,8 @@ $env:PRAIMATE_REMOTE_LISTEN = "127.0.0.1:8844"
 praimate
 ```
 
-Unlock or initialize the database. Configure Cloudflare in **Settings → Remote
-access · Cloudflare Tunnel**, or configure direct HTTPS as described below.
-Settings can create a device pairing code. Saving Cloudflare configuration also
-enables its local listener.
+Unlock or initialize the database before starting access. The Desktop edition
+does not include the Server page; check **About → Edition** if it is missing.
 
 ### Start without a display
 
@@ -104,7 +119,8 @@ Choose one connection method:
 
 - **Cloudflare Tunnel:** create a remotely managed tunnel and public hostname
   in Cloudflare. On Server, save that HTTPS origin and connector token in
-  Settings, then choose **Install and start connector**. Point the Cloudflare
+  **Server → Cloudflare Tunnel**, then choose **Install and start connector**.
+  Start remote access first. Point the Cloudflare
   hostname at the local service URL shown by PrAImate. Optional Cloudflare Access
   adds email/PIN login before the separate PrAImate device pairing.
 - **Direct TLS or a reverse proxy:** configure the certificate/key and, when
@@ -122,7 +138,7 @@ and [Cloudflare setup](REMOTE-SERVER.md#cloudflare-tunnel-and-optional-access).
 ## Android preview
 
 1. Install and start **Server**. A Desktop-only installation cannot serve Android.
-2. Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.27/praimate-mobile-preview.apk)**
+2. Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.28/praimate-mobile-preview.apk)**
    onto the device and open it. Android may ask you to allow installation from
    your browser or file manager.
 3. Add the server's HTTPS origin. Complete Cloudflare Access login first if
@@ -147,7 +163,7 @@ device/account validation; automated checks are described in that guide.
 
 ## Choose a release asset
 
-The [1.2.27 release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.27)
+The [1.2.28 release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.28)
 contains both editions. For newer versions, select a compatible entry in
 [Releases](https://github.com/sPROFFEs/PrAImate/releases).
 

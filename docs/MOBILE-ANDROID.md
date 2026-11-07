@@ -8,7 +8,7 @@ cancel server jobs. Native VS Code/VSCodium windows are not screen-streamed.
 
 ## Install the published APK
 
-Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.27/praimate-mobile-preview.apk)**
+Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.28/praimate-mobile-preview.apk)**
 from the combined release. You do not need the Android SDK or a source build to
 use it. Android may ask you to allow installation from your browser/file manager.
 The APK requires Android 8.0+ and a current Android System WebView; isolated

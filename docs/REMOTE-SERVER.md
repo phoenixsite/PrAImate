@@ -49,7 +49,7 @@ installers and updates accept such a release only when it contains Server archiv
 a newer Desktop-only release cannot replace Server. Legacy `server-v*` releases
 remain supported and standalone Server publication stays a prerelease. Shared
 standalone tools are published once. The
-[1.2.27 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.27)
+[1.2.28 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.28)
 is published with Server archives for all five release platforms and the Android APK.
 
 Both editions use the existing profile location. Use `PRAIMATE_HOME` for separate
@@ -86,19 +86,37 @@ trusted application profile, not separate OS users or isolated tenant databases;
 control permission includes running CLI processes under the server's OS account.
 
 Installation never enables a listener, modifies a firewall, installs a service,
-or starts a background process automatically. The server GUI can also host the
-adapter when `PRAIMATE_REMOTE_LISTEN` is configured. Saving Cloudflare Tunnel
-configuration explicitly enables its loopback listener; later GUI starts restore
-that listener while the Cloudflare configuration is retained.
+or starts a background process automatically. The Server GUI has a **SERVER**
+edition label and a dedicated **Server** sidebar entry (also linked from
+**Settings → Configure Server**). This page configures the listen address, TLS
+certificate/key file paths, allowed browser origins and automatic startup after
+database unlock. Settings are stored in the encrypted database.
+
+Choose **Save Server settings**, then **Start remote access**. Changes to a
+running listener require **Apply settings / restart**; saving alone does not
+disconnect clients. **Stop access** stops only the remote listener, preserving
+the GUI, Core tasks and native terminals. If a new port cannot bind, the previous
+listener configuration is restored and the error remains visible. Explicit
+startup flags/environment variables take precedence over saved preferences.
+Older profiles without a saved Server configuration retain their existing
+Cloudflare loopback startup behavior until Server settings are saved.
+
+**Pairing and devices** creates single-use codes for direct or tunnel
+connections and lists paired devices for revocation, even while access is
+stopped. Pairing itself requires a running listener. No administrator token or
+device credential is exposed by the configuration/status APIs. Remote Server
+administration requires the `admin` role; applying or stopping the listener
+schedules the change after the request receipt and disconnects remote clients.
 
 ## Cloudflare Tunnel and optional Access
 
-In the **server edition**, open **Settings → Remote access · Cloudflare Tunnel**.
+In the **Server edition**, open **Server → Cloudflare Tunnel**. Save your Server
+connection settings and start remote access before starting the connector.
 
 1. Create a remotely managed tunnel in your Cloudflare dashboard. Configure a
    public hostname, such as `https://praimate.example.com`, whose service points
    to this server's local origin (normally `http://127.0.0.1:8844`). PrAImate shows
-   the actual origin in Settings. Do not point the tunnel at its own public URL.
+   the actual origin on the Server page. Do not point the tunnel at its own public URL.
 2. Paste the public HTTPS origin and **only the connector token**, then save.
    Saving config does not install or start the connector.
 3. Choose **Install and start connector**. PrAImate downloads the official
@@ -109,7 +127,7 @@ In the **server edition**, open **Settings → Remote access · Cloudflare Tunne
    entire hostname, including `/v1/*`, and configure allowed users and email
    one-time PIN or your identity provider. These policies stay in Cloudflare;
    PrAImate does not require a Cloudflare account API key or create DNS records.
-5. Create a device pairing code in Settings or the remote connection panel. Add
+5. Create a device pairing code in **Server → Pairing and devices** or the remote connection panel. Add
    the public hostname in Android. If Access is enabled, sign in there first,
    then pair with PrAImate using its separate code.
 

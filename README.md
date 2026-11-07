@@ -32,7 +32,7 @@ commands and permission boundaries.
 | **Android preview** | Control a running Server from your phone or tablet | `praimate-mobile-preview.apk` |
 
 The `main` branch remains desktop-only; Server and Android are developed on
-`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.27)
+`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.28)
 provides both application editions and the APK. Shared standalone CLI/tools are
 published once per platform; application archives are self-contained.
 
@@ -90,7 +90,12 @@ selects the application package. Installing another edition into the same prefix
 replaces that installation. See [side-by-side prefixes and profiles](docs/INSTALLATION.md#keep-both-editions-on-one-computer)
 to keep both.
 
-For a new Server profile, start without a display:
+Launch `praimate` for the Server GUI, then open **Server** in the sidebar (or
+**Settings → Configure Server**). Save the listener/TLS/startup preferences,
+choose **Start remote access**, and configure Cloudflare and device pairing on
+the same page. The **SERVER** edition label distinguishes it from Desktop.
+
+For a new Server profile, you can also start without a display:
 
 ```sh
 praimate server --initialize-db --listen 127.0.0.1:8844 --db-password-stdin --pair
@@ -105,7 +110,7 @@ The [Server guide](docs/REMOTE-SERVER.md) covers GUI startup and persistent serv
 
 ### Android preview
 
-Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.27/praimate-mobile-preview.apk)**,
+Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.28/praimate-mobile-preview.apk)**,
 install it on Android, add the Server's HTTPS origin and pair with its one-use
 code. If Cloudflare Access is enabled, complete its email/PIN login first.
 Android connects to Server; it cannot use the Desktop-only edition as a backend.
