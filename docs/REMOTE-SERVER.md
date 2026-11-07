@@ -49,7 +49,7 @@ installers and updates accept such a release only when it contains Server archiv
 a newer Desktop-only release cannot replace Server. Legacy `server-v*` releases
 remain supported and standalone Server publication stays a prerelease. Shared
 standalone tools are published once. The
-[1.3.1 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.1)
+[1.3.2 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.2)
 is published with Server archives for all five release platforms and the Android APK.
 
 Both editions use the existing profile location. Use `PRAIMATE_HOME` for separate
@@ -201,6 +201,21 @@ the rate-limited pairing exchange are public.
 
 ## Persistent service
 
+The host GUI provides **Server → System startup** for an optional background
+service that starts before desktop login. It installs only after the owner
+confirms unattended profile unlock. Linux uses systemd user services with
+lingering; Windows uses a boot-triggered, password-logon task; macOS uses a
+system LaunchDaemon under the profile's account. The same panel shows status,
+controls future startup and displays bounded logs. The Android/browser admin
+view can inspect status and logs; OS authorization stays on the host.
+
+See [system startup, credentials and recovery](SERVER-STARTUP.md) before enabling.
+The desktop listener checkbox controls only the foreground GUI; it does not
+register a background service. A background service explicitly starts its saved
+listener even if that desktop checkbox is off.
+
+### Manual Linux template
+
 `scripts/server/praimate-server.service` is an optional Linux user-service template
 for an installation in `~/.local/bin`. It is also included in server bundles as
 `scripts-server/`. Configure its environment and encrypted systemd credential,
@@ -217,10 +232,12 @@ restart, which exits with code 75 for the supervisor to restart. A normal stop
 exits 0. Foreground installations are stopped/restarted from their console; the
 administrator API can also stop them gracefully.
 
-Windows/macOS can run the same foreground command under their OS process
-supervisor with a protected credential file. The Linux unit is a supplied
-configuration template, not a claim that native Windows/macOS service lifecycle
-has been exercised. No service is installed or enabled as part of the tests.
+The GUI's service manager is separate from this manually named unit. Stop and
+disable an older manual service before switching to GUI-managed startup; the
+wizard does not take ownership of unrelated OS services. OS definitions and
+helper code are validated in tests/builds; native authorization dialogs and full
+reboot behavior still require validation on each target OS. Automated tests do
+not install or enable persistent services on the host.
 
 A server update replaces its binaries but leaves active jobs running. Restart
 explicitly afterwards. It never launches a duplicate owner or tries to replay a

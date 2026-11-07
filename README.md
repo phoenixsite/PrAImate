@@ -32,7 +32,7 @@ commands and permission boundaries.
 | **Android preview** | Control a running Server from your phone or tablet | `praimate-mobile-preview.apk` |
 
 The `main` branch remains desktop-only; Server and Android are developed on
-`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.1)
+`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.2)
 provides both application editions and the APK. Shared standalone CLI/tools are
 published once per platform; application archives are self-contained.
 
@@ -108,9 +108,14 @@ or [direct TLS/reverse-proxy setup](docs/REMOTE-SERVER.md#network-configuration)
 `127.0.0.1` is local to the host, not the address to enter on a remote phone.
 The [Server guide](docs/REMOTE-SERVER.md) covers GUI startup and persistent services.
 
+To start Server with a VM or workstation before desktop login, open
+**Server → System startup** on the host. Configure its optional background
+service, then enable or disable future system starts and inspect logs from that
+panel. See [system startup and unattended unlock](docs/SERVER-STARTUP.md).
+
 ### Android preview
 
-Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.1/praimate-mobile-preview.apk)**,
+Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.2/praimate-mobile-preview.apk)**,
 install it on Android, add the Server's HTTPS origin and pair with its one-use
 code. If Cloudflare Access is enabled, complete its email/PIN login first.
 Android connects to Server; it cannot use the Desktop-only edition as a backend.

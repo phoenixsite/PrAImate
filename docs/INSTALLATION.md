@@ -1,6 +1,6 @@
 # Install Desktop, Server or Android
 
-Choose your product before downloading from the [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.1):
+Choose your product before downloading from the [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.2):
 
 | Product | Install it on | What it does |
 |---|---|---|
@@ -67,7 +67,7 @@ and a **Server** entry in the sidebar. No environment variables are required:
 1. Open **Server** (or **Settings → Configure Server**).
 2. Set the listen address, normally `127.0.0.1:8844` for Cloudflare Tunnel.
    For a network listener, also supply TLS certificate and private-key file paths
-   on the Server host. Optionally enable automatic startup after database unlock.
+   on the Server host. Optionally enable the desktop listener after database unlock.
 3. Choose **Save Server settings**, then **Start remote access**. Saving settings
    alone does not start or restart the listener.
 4. Configure **Cloudflare Tunnel** on the same page, or use your direct HTTPS
@@ -77,6 +77,13 @@ The page displays the active local origin and public hostname, supports listener
 restart/stop, and lists paired devices with access revocation. **Stop access**
 leaves local chats, workers, and terminals running. Changing a running listener
 requires **Apply settings / restart** and disconnects remote clients.
+
+For unattended VM startup, use **Server → System startup** on the host. This is
+separate from opening the desktop listener. The setup explains its private unlock
+credential and configures the OS supervisor; installation does not close the
+current workspace. **Start background service** explicitly hands over after a
+confirmation. See the [startup guide](SERVER-STARTUP.md) for platform requirements,
+Cloudflare, recovery and credential storage.
 
 For scripted startup, flags and environment variables remain supported and take
 precedence over saved settings:
@@ -138,7 +145,7 @@ and [Cloudflare setup](REMOTE-SERVER.md#cloudflare-tunnel-and-optional-access).
 ## Android preview
 
 1. Install and start **Server**. A Desktop-only installation cannot serve Android.
-2. Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.1/praimate-mobile-preview.apk)**
+2. Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.2/praimate-mobile-preview.apk)**
    onto the device and open it. Android may ask you to allow installation from
    your browser or file manager.
 3. Add the server's HTTPS origin. Complete Cloudflare Access login first if
@@ -163,7 +170,7 @@ device/account validation; automated checks are described in that guide.
 
 ## Choose a release asset
 
-The [1.3.1 release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.1)
+The [1.3.2 release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.2)
 contains both editions. For newer versions, select a compatible entry in
 [Releases](https://github.com/sPROFFEs/PrAImate/releases).
 
