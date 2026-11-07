@@ -8,7 +8,7 @@ cancel server jobs. Native VS Code/VSCodium windows are not screen-streamed.
 
 ## Install the published APK
 
-Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.28/praimate-mobile-preview.apk)**
+Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.0/praimate-mobile-preview.apk)**
 from the combined release. You do not need the Android SDK or a source build to
 use it. Android may ask you to allow installation from your browser/file manager.
 The APK requires Android 8.0+ and a current Android System WebView; isolated
@@ -58,10 +58,22 @@ System WebView are required. No native model libraries/NDK are bundled.
 2. Add an HTTPS server origin in the APK, including its port when needed. Up to
    20 encrypted server profiles are supported. Reverse proxies expose the API at
    the origin's `/v1/` paths.
-3. Pair with the one-use code printed by `praimate server --pair`, or a code from
-   an administrator. Administrator-token login is also available.
+3. On the Server host, open **Server → Pairing and devices**, enter a device name
+   and choose **Full administration** for full control (or a more restricted
+   role). Click **Create pairing code** and enter its eight digits in the APK,
+   including any leading zeroes. Each code is single use and valid for five
+   minutes. A headless host can print an administrator code with
+   `praimate server --pair`. Complete Cloudflare Access email sign-in first if
+   enabled; it has its own separate verification code.
 4. Use the same chats, workers, terminals, settings and documents as other clients
    of that server profile. Project/session windows use Android's activity back stack.
+
+Administrator-token login is optional. The host owner supplies a high-entropy
+value of at least 32 characters through `PRAIMATE_REMOTE_TOKEN` before starting
+the Server. The GUI does not automatically create this token. A pairing code
+with **Full administration** grants administrator access without configuring a
+bootstrap token. The database password, Cloudflare connector token and
+Cloudflare Access email code are separate credentials.
 
 Open a saved server's options (the ellipsis button, or long-press) to import its
 PEM/DER private CA/server certificate.

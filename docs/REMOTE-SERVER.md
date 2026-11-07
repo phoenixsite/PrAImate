@@ -49,7 +49,7 @@ installers and updates accept such a release only when it contains Server archiv
 a newer Desktop-only release cannot replace Server. Legacy `server-v*` releases
 remain supported and standalone Server publication stays a prerelease. Shared
 standalone tools are published once. The
-[1.2.28 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.28)
+[1.3.0 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.0)
 is published with Server archives for all five release platforms and the Android APK.
 
 Both editions use the existing profile location. Use `PRAIMATE_HOME` for separate
