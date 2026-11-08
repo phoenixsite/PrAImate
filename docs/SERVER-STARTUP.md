@@ -50,6 +50,18 @@ login. Configure those CLIs for noninteractive authentication where supported.
 Shell-only API key exports are not copied into the generated service. The wizard
 preserves the profile location and supported XDG/Codex/Claude configuration paths.
 
+CLI discovery also checks stable NVM and FNM installations, including
+`~/.config/nvm`, `~/.nvm` and the FNM data directory. It respects an active
+manager runtime, then the manager's default alias, with numeric version ordering
+as a fallback. Custom `NVM_DIR`, `FNM_DIR`, `NVM_HOME` and `NVM_SYMLINK` roots are
+preserved when configuring startup. Setup also records the selected Node binary
+directory after resolving symlinks, so the service keeps the host's runtime when
+several managers are installed. Update startup configuration to select another
+runtime. Per-terminal FNM links are not saved.
+Global npm updates of a detected version-managed CLI use its own Node runtime
+and installation prefix, so updating it does not silently install into another
+Node version. PrAImate does not elevate an npm update to write root-owned packages.
+
 ## Credentials and data
 
 Unattended startup deliberately allows this OS account to unlock the profile
@@ -75,7 +87,12 @@ password-protected key envelope remain encrypted; the password is unchanged.
   **Disable system startup** preserves configuration and does not stop an already
   running service. **Stop** leaves future startup enabled.
 
-The manual [Linux service template](https://github.com/sPROFFEs/PrAImate/blob/v1.3.2/scripts/server/praimate-server.service)
+After upgrading from 1.3.2, reopen the updated Server app and choose **Update
+startup configuration** once. This regenerates the Linux unit and saves your
+stable runtime paths. Then restart the background service, or start it if it was
+stopped. Existing Cloudflare configuration and device pairing are retained.
+
+The manual [Linux service template](https://github.com/sPROFFEs/PrAImate/blob/v1.3.3/scripts/server/praimate-server.service)
 remains available for administrators who prefer systemd encrypted credentials
 with `LoadCredentialEncrypted` and their own service configuration.
 
@@ -107,10 +124,11 @@ also inspect the task's last result/Event Viewer after an account-password or
 batch-logon-policy error. A supervised Windows retry may take up to a minute.
 
 Stop and disable an older manually configured service before switching to the
-GUI wizard. The wizard does not replace registrations it does not own. To roll
-back to an application version before 1.3.2, remove this startup registration
-first, because older binaries do not recognize its managed-startup flags. No
-database schema or key-envelope migration is required for this feature.
+GUI wizard. The wizard does not replace registrations it does not own. Before
+rolling back to an earlier Server version, remove this startup registration and
+configure it again with that version: older binaries may not recognize newer
+managed-startup flags or saved environment keys. No database schema or
+key-envelope migration is required for this feature.
 
 Automated checks validate service definitions, Windows DPAPI, helper isolation,
 credentials, bounded transports and real headless Core lifecycle. Tests do not
