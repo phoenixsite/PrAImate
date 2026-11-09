@@ -7,9 +7,12 @@ Workers page and the Studio / VS Code extension's **PrAImate: Workers** view.
 ## Task board and attempts
 
 The execution monitor uses four columns: **Needs you**, **Working**, **Done** and
-**Queued**. Failed/interrupted assignments and completed changes awaiting review
-appear in Needs you. A card identifies the task, backend, model, dependencies
-and attempt count. Search by task/model or filter by backend in Desktop.
+**Queued**. Failed/interrupted assignments appear in Needs you immediately. A
+completed change awaiting review moves to Needs you once the task graph stops
+executing; while other tasks are still running it stays in Done marked
+**Completed · review when execution ends**. A card identifies the task, backend,
+model, dependencies and attempt count. Search by task/model or filter by backend
+in Desktop.
 
 Select a card to focus its console. The attempt selector preserves the actual
 CLI/model of each historical attempt, even after Run settings change. **Activity**
@@ -273,8 +276,9 @@ summary uses only the available input space; it does not replay complete logs.
 
 Failed tasks show their specific error and retained attempt history. Blocked tasks
 name the dependency problem. Completed results stay available for review even
-when another task fails. The board groups attempts under the same assignment,
-with separate Activity, Result, Changes and Assignment views.
+when another task fails; accept and reject unlock when the graph stops executing.
+The board groups attempts under the same assignment, with separate Activity,
+Result, Changes and Assignment views.
 
 Example configuration additions:
 

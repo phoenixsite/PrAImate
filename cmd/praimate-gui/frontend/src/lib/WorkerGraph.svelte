@@ -85,6 +85,7 @@
       </fieldset>
     {/each}
   {:else}
+    {#if active && (snapshot.dag.tasks || []).some(t => t.status === 'completed' && t.review === 'pending')}<p class="hint">Accept and reject unlock when the task graph finishes executing.</p>{/if}
     <div class="task-cards">
       {#each snapshot.dag.tasks || [] as task (task.id)}
         <article>
@@ -105,7 +106,7 @@
             <p class="hint">{task.result.baseCommit.slice(0, 10)} → {task.result.resultCommit.slice(0, 10)}</p>
             <p class="path">{task.result.changedFiles?.join(', ') || 'No file changes'}</p>
             <details><summary>Git diff{task.result.diffTruncated ? ' (preview)' : ''}</summary><pre class="diff">{task.result.diff || 'No changes'}</pre></details>
-            {#if task.review !== 'merged'}<div class="actions"><button disabled={busy || active} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept</button><button disabled={busy || active} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject</button></div>{/if}
+            {#if task.review !== 'merged'}<div class="actions"><button disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept</button><button disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject</button></div>{/if}
           {/if}
           {#if !active && ['failed', 'cancelled', 'blocked'].includes(task.status)}<div class="actions">{#if task.failurePhase === 'dependencies'}<button class="primary" disabled={busy} on:click={() => action(async () => {await api.resolveWorkerDAGTaskConflicts(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id)})}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={() => action(async () => { await api.retryWorkerDAGTask(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id) })}>{task.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue with existing changes'}</button><button disabled={busy} on:click={() => reset(task)}>Start over…</button></div>{/if}
           <details><summary>Task activity</summary>{#each (snapshot.events || []).filter(e => e.taskID === task.id).slice(-40) as event}<small>{event.kind}</small><pre>{event.text}</pre>{/each}</details>

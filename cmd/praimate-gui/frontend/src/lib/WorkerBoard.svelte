@@ -29,7 +29,7 @@
               <div class="route"><span>{item.route.cli || 'Local'}</span><span title={item.route.model}>{item.route.model || 'Backend default'}</span></div>
               <p>{item.preview || item.description || 'Waiting for assignment'}</p>
               {#if item.status === 'retrying'}<span class="retry-note">Retry {item.autoRetriesUsed} · {item.nextRetryAt ? new Date(item.nextRetryAt).toLocaleTimeString() : 'Scheduled'}</span>{:else if item.error}<span class="error-note" title={item.error}>{item.error.slice(0, 140)}</span>{/if}
-              <footer><span>{workerLabel(item.tier)}</span><span>{item.attempts > 1 ? `${item.attempts} attempts` : item.review === 'pending' ? 'Ready to review' : item.dependencies.length ? `${item.dependencies.length} dependencies` : item.parentID ? 'Delegated assignment' : 'Independent'}</span></footer>
+              <footer><span>{workerLabel(item.tier)}</span><span>{item.attempts > 1 ? `${item.attempts} attempts` : item.review === 'pending' ? item.reviewLabel : item.dependencies.length ? `${item.dependencies.length} dependencies` : item.parentID ? 'Delegated assignment' : 'Independent'}</span></footer>
             </button>
           {/each}
           {#if !cards.length}<p class="empty">{column.id === 'attention' ? 'No action needed' : column.id === 'working' ? 'No active assignments' : column.id === 'done' ? 'Results will appear here' : 'No queued tasks'}</p>{/if}

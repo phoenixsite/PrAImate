@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { workerBoardItems, mergeWorkerEvents } from './workerBoard.js'
+import { workerBoardItems, workerStatusLabel, mergeWorkerEvents } from './workerBoard.js'
 import { workerExecutions, workerUsage } from './workerActivity.js'
 
 test('attempts and usage remain visible after the event buffer is empty', () => {
@@ -28,9 +28,17 @@ test('journal pages merge with live updates by sequence without duplicate tool e
   assert.equal(events[1].text,'hello')
 })
 
-test('completed changes awaiting review stay in Needs you', () => {
-  const [card]=workerBoardItems({dag:{tasks:[{id:'review',status:'completed',review:'pending'}]}})
+test('completed changes awaiting review stay in Needs you once execution ends', () => {
+  const [card]=workerBoardItems({status:'review',dag:{tasks:[{id:'review',status:'completed',review:'pending'}]}})
   assert.equal(card.column,'attention')
+  assert.equal(workerStatusLabel(card),'Ready to review')
+})
+
+test('completed review waits in Done while the task graph is still running', () => {
+  const [card]=workerBoardItems({status:'running',dag:{tasks:[{id:'review',status:'completed',review:'pending'}]}})
+  assert.equal(card.column,'done')
+  assert.equal(card.reviewLabel,'Completed · review when execution ends')
+  assert.equal(workerStatusLabel(card),'Completed · review when execution ends')
 })
 
 test('retrying tasks stay in Working and old planning attempts do not clutter the task board', () => {

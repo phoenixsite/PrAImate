@@ -468,6 +468,23 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   assert.equal(diff.textContent,'<script>malicious</script>');assert.equal(diff.innerHTML,'');
 });
 
+test('completed worker review waits in Done while the run is still executing', () => {
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const completed={id:'a',description:'A',dependencies:[],worker:{profile:'middle'},status:'completed',review:'pending',result:{baseCommit:'base',resultCommit:'result',changedFiles:[],diff:''}};
+  const running={id:'b',description:'B',dependencies:[],worker:{profile:'fast'},status:'running'};
+  const snapshot={id:'run',task:'objective',status:'running',updatedAt:'one',profiles,events:[],dag:{tasks:[completed,running],maxParallel:2,targetBranch:'main',baseCommit:'abc'}};
+  const laneTitles=()=>descendants(h.elements.get('worker-lanes')).filter(e=>e.tag==='h2').map(e=>e.textContent);
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'running'}],snapshot});
+  assert.deepEqual(laneTitles(),['Needs you · 0','Working · 1','Done · 1','Queued · 0']);
+  assert.ok(descendants(h.elements.get('worker-lanes')).some(e=>e.textContent.includes('Completed · review when execution ends')));
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:{...snapshot,status:'review',updatedAt:'two',dag:{...snapshot.dag,tasks:[completed]}}});
+  assert.deepEqual(laneTitles(),['Needs you · 1','Working · 0','Done · 0','Queued · 0']);
+  assert.ok(descendants(h.elements.get('worker-lanes')).some(e=>e.textContent.includes('Ready to review')));
+});
+
 test('failed worker tasks show next and previous routes, with an explicit profile reset', () => {
   const h=webviewHarness();
   const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'replacement-'+tier}));

@@ -240,12 +240,14 @@ function workerAttempts() {
   }
   return [...groups.values()];
 }
-function workerStatusLabel(card){if(card.status==='completed')return card.task?.review==='pending'?'Ready to review':card.task?.review==='accepted'?'Approved':card.task?.review==='merged'?'Merged':'Completed';return {running:'Working',planning:'Planning',pending:card.task?.dependencies?.length?'Waiting for dependencies':'Queued',waiting:'Delegating',retrying:'Retry scheduled',blocked:'Dependency failed',failed:'Failed',cancelled:'Stopped',interrupted:'Interrupted'}[card.status] || card.status;}
+function workerRunActive(){return ['running','planning','merging'].includes(workerSnapshot?.status);}
+function workerReviewLabel(review){if(review!=='pending')return review==='accepted'?'Approved':review==='merged'?'Merged':'Completed';return workerRunActive()?'Completed · review when execution ends':'Ready to review';}
+function workerStatusLabel(card){if(card.status==='completed')return workerReviewLabel(card.task?.review);return {running:'Working',planning:'Planning',pending:card.task?.dependencies?.length?'Waiting for dependencies':'Queued',waiting:'Delegating',retrying:'Retry scheduled',blocked:'Dependency failed',failed:'Failed',cancelled:'Stopped',interrupted:'Interrupted'}[card.status] || card.status;}
 function workerColumn(state){return ['failed','cancelled','blocked','interrupted'].includes(state)?'attention':['running','waiting','planning','retrying'].includes(state)?'working':['completed','merged'].includes(state)?'done':'queued';}
 function workerCards() {
   const attempts=workerAttempts(), cards=(workerSnapshot?.dag?.tasks || []).map(task=>{
     const history=attempts.filter(a=>a.taskID===task.id);
-    return {id:task.id,task,attempt:history.at(-1),count:history.length,title:task.id,status:task.status,column:task.status==='completed' && task.review==='pending'?'attention':workerColumn(task.status),preview:task.description || task.output,error:task.error,route:workerTaskRoute(task)};
+    return {id:task.id,task,attempt:history.at(-1),count:history.length,title:task.id,status:task.status,column:task.status==='completed' && task.review==='pending' && !workerRunActive()?'attention':workerColumn(task.status),preview:task.description || task.output,error:task.error,route:workerTaskRoute(task)};
   });
   if(!workerSnapshot?.dag?.tasks?.length){
     for(const tier of [...new Set(attempts.filter(a=>!a.taskID).map(a=>a.tier))]){
@@ -315,7 +317,7 @@ function renderWorkerBoard() {
   else if(workerConsoleTab==='changes') {
     if(card.task?.worktree || card.task?.result){if(!card.task.result)loadWorkerPreview(card);consolePanel.appendChild(button('Refresh changes',()=>{loadWorkerPreview(card,true);renderWorkerBoard();},workerPreviewBusy));const preview=workerPreviewKey===workerSelected+':'+card.task.id?workerPreview:null;if(preview?.conflicts?.length)consolePanel.appendChild(element('p','Conflicted files: '+preview.conflicts.join(', ')+'. Resolve with the worker, or edit and stage the files before continuing.','error'));consolePanel.appendChild(element('pre',preview?.status || card.task.result?.changedFiles?.join('\n') || ''));consolePanel.appendChild(element('pre',preview?.diff || card.task.result?.diff || (workerPreviewBusy?'Loading changes…':'No tracked file changes.')));consolePanel.appendChild(element('p','Current task worktree · '+(card.task.worktree?.path || 'Saved result'),'hint'));if(preview?.truncated)consolePanel.appendChild(element('p','Diff preview truncated. Inspect the worktree for full changes.','hint'));}
     else consolePanel.appendChild(element('p','This assignment has no task worktree.','hint'));
-    if(card.task?.result && card.task.review!=='merged'){consolePanel.appendChild(button('Accept changes',()=>graphAction('workerGraphReview',{taskID:card.task.id,decision:'accepted'}),active));consolePanel.appendChild(button('Reject changes',()=>graphAction('workerGraphReview',{taskID:card.task.id,decision:'rejected'}),active));}
+    if(card.task?.result && card.task.review!=='merged'){const accept=button('Accept changes',()=>graphAction('workerGraphReview',{taskID:card.task.id,decision:'accepted'}),active),reject=button('Reject changes',()=>graphAction('workerGraphReview',{taskID:card.task.id,decision:'rejected'}),active);if(active){accept.title='Available when the task graph finishes executing';reject.title='Available when the task graph finishes executing';}consolePanel.appendChild(accept);consolePanel.appendChild(reject);}
   } else {consolePanel.appendChild(element('pre',current?.assignment || card.task?.description || ''));consolePanel.appendChild(element('p','Workspace: '+(current?.workspace || card.task?.worktree?.path || workerSnapshot.workspace || '—'),'hint'));consolePanel.appendChild(element('p','CLI session: '+(current?.sessionID || 'Not reported'),'hint'));if(current?.parentID)consolePanel.appendChild(element('p','Delegated by: '+current.parentID,'hint'));if(card.task?.dependencies?.length)consolePanel.appendChild(element('p','Depends on: '+card.task.dependencies.join(', '),'hint'));}
   root.appendChild(consolePanel);
   if(searchFocused){search.focus();search.setSelectionRange?.(searchPosition,searchPosition);}
@@ -367,6 +369,7 @@ function renderWorkerGraph(root) {
       card.appendChild(element('p','Provider routing, permissions and limits use the existing backend/profile configuration.','hint'));section.appendChild(card);
     }
   } else {
+    if(active && (graph.tasks || []).some(t=>t.status==='completed' && t.review==='pending'))section.appendChild(element('p','Accept and reject unlock when the task graph finishes executing.','hint'));
     for(const task of graph.tasks || []) {
       const card=element('article','','card');card.appendChild(element('strong',task.id+' · '+task.status+(task.review ? ' · '+task.review : '')));card.appendChild(element('p',task.description));
       card.appendChild(element('p','Depends on: '+(task.dependencies || []).join(', '),'hint'));
@@ -382,7 +385,7 @@ function renderWorkerGraph(root) {
       if(task.result) {
         card.appendChild(element('p',task.result.baseCommit.slice(0,10)+' → '+task.result.resultCommit.slice(0,10),'hint'));card.appendChild(element('pre',(task.result.changedFiles || []).join(', ') || 'No file changes'));
         card.appendChild(graphDetails('Git diff'+(task.result.diffTruncated?' (preview)':''),task.result.diff || 'No changes',workerSelected+task.id+'diff'));
-        if(task.review!=='merged') {card.appendChild(button('Accept',()=>graphAction('workerGraphReview',{taskID:task.id,decision:'accepted'}),active));card.appendChild(button('Reject',()=>graphAction('workerGraphReview',{taskID:task.id,decision:'rejected'}),active));}
+        if(task.review!=='merged') {const accept=button('Accept',()=>graphAction('workerGraphReview',{taskID:task.id,decision:'accepted'}),active),reject=button('Reject',()=>graphAction('workerGraphReview',{taskID:task.id,decision:'rejected'}),active);if(active){accept.title='Available when the task graph finishes executing';reject.title='Available when the task graph finishes executing';}card.appendChild(accept);card.appendChild(reject);}
       }
       if(!active && ['failed','blocked','cancelled'].includes(task.status)){if(task.failurePhase==='dependencies')card.appendChild(button('Resolve conflicts with worker',()=>graphAction('workerGraphResolve',{taskID:task.id})));card.appendChild(button(task.failurePhase==='dependencies'?'Continue after manual resolution':'Continue with existing changes',()=>graphAction('workerGraphRetry',{taskID:task.id})));card.appendChild(button('Start over…',()=>graphAction('workerGraphReset',{taskID:task.id})));}
       section.appendChild(card);
@@ -425,6 +428,7 @@ function renderWorkerRuns() {
   const label=workerSnapshot.nextRetryAt?'Retrying automatically':({running:'Working',planning:'Planning',draft:'Plan ready',failed:'Needs attention',review:'Ready to review',cancelled:'Stopped',completed:'Completed'}[workerSnapshot.status] || workerSnapshot.status);
   const bar=element('div',label+' · '+(workerSnapshot.accessMode==='full'?'Full access':'Supervised')+' · '+(workerSnapshot.maxRetries || 0)+' automatic retries per task','toolbar');
   if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
+  if(workerRunActive() && workerSnapshot.dag?.tasks?.some(t=>t.status==='completed' && t.review==='pending')) result.appendChild(element('p','Completed results can be accepted or rejected when the task graph finishes executing.','hint'));
   if(workerSnapshot.dag && workerSnapshot.dag.tasks?.length) {
     if(workerSnapshot.status==='draft')result.appendChild(element('p','Tasks have not started. Review the assignments below, then select Run task graph to start the workers.','hint'));
     const plan=element('details','','worker-plan');plan.open=workerSnapshot.status==='draft' || graphDetailsOpen.has(workerSelected+':plan');plan.appendChild(element('summary',workerSnapshot.status==='draft'?'Review plan':'Plan, routes and integration'));plan.addEventListener('toggle',()=>{if(plan.open)graphDetailsOpen.add(workerSelected+':plan');else graphDetailsOpen.delete(workerSelected+':plan');});renderWorkerGraph(plan);result.appendChild(plan);
