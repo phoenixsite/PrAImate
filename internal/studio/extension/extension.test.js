@@ -234,6 +234,7 @@ test('a Workers request is not replayed when the sidebar webview is recreated', 
     const second = webview();
     h.provider().resolveWebviewView(second.view);
     second.ready();
+    await new Promise(resolve=>setImmediate(resolve));
     assert.equal(second.messages.filter(m=>m.type==='navigate').length,0,'a recreated view must not be sent the old request');
   } finally { h.close(); }
 });
@@ -251,11 +252,32 @@ test('a Workers request made before the sidebar exists is delivered once on its 
     const first = webview();
     h.provider().resolveWebviewView(first.view);
     first.ready();
+    await new Promise(resolve=>setImmediate(resolve));
     assert.deepEqual(first.messages.filter(m=>m.type==='navigate').map(m=>m.page),['workers']);
     const second = webview();
     h.provider().resolveWebviewView(second.view);
     second.ready();
+    await new Promise(resolve=>setImmediate(resolve));
     assert.equal(second.messages.filter(m=>m.type==='navigate').length,0);
+  } finally { h.close(); }
+});
+test('sidebar views resolved by VS Code with a context object are not treated as worker panels', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    const messages=[];let receive;
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view,{state:undefined},{isCancellationRequested:false});
+    receive({type:'ready'});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(messages.filter(m=>m.type==='navigate').length,0);
+    const panel=[];let panelReceive;
+    const worker={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>panel.push(m),onDidReceiveMessage:fn=>{panelReceive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(worker,'saved-run');
+    panelReceive({type:'ready'});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(panel.filter(m=>m.type==='navigate').map(m=>[m.page,m.workerID]),[['workers','saved-run']]);
   } finally { h.close(); }
 });
 for (const platform of ['linux','win32']) {

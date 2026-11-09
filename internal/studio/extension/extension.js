@@ -214,7 +214,9 @@ function editorContext() {
 
 class ChatView {
   constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); this.requestedPage = ''; }
-  resolveWebviewView(view, workerID = '') {
+  resolveWebviewView(view, workerArg = '') {
+    // VS Code calls this as (view, context, token) for sidebar views; only the worker panel passes a run id string.
+    const workerID = typeof workerArg === 'string' ? workerArg : '';
     this.views.add(view);
     view.webview.options = { enableScripts:true, localResourceRoots:[context.extensionUri] };
     const mascot = view.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri,'resources','monke-mascot.png'));
