@@ -215,6 +215,49 @@ test('Workers command is registered and opens the Workers page', async () => {
     assert.ok(manifest.contributes.commands.some(command => command.command === 'praimate.focusWorkers'));
   } finally { h.close(); }
 });
+test('a Workers request is not replayed when the sidebar webview is recreated', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    const webview = () => {
+      const messages=[];let receive;
+      const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+      return {view,messages,ready:()=>receive({type:'ready'})};
+    };
+    const first = webview();
+    h.provider().resolveWebviewView(first.view);
+    first.ready();
+    await h.commands.get('praimate.focusWorkers')();
+    assert.deepEqual(first.messages.filter(m=>m.type==='navigate').map(m=>m.page),['workers'],'the live view receives the request once');
+    assert.equal(h.provider().requestedPage,'');
+    const second = webview();
+    h.provider().resolveWebviewView(second.view);
+    second.ready();
+    assert.equal(second.messages.filter(m=>m.type==='navigate').length,0,'a recreated view must not be sent the old request');
+  } finally { h.close(); }
+});
+test('a Workers request made before the sidebar exists is delivered once on its first ready', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    await h.commands.get('praimate.focusWorkers')();
+    const webview = () => {
+      const messages=[];let receive;
+      const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+      return {view,messages,ready:()=>receive({type:'ready'})};
+    };
+    const first = webview();
+    h.provider().resolveWebviewView(first.view);
+    first.ready();
+    assert.deepEqual(first.messages.filter(m=>m.type==='navigate').map(m=>m.page),['workers']);
+    const second = webview();
+    h.provider().resolveWebviewView(second.view);
+    second.ready();
+    assert.equal(second.messages.filter(m=>m.type==='navigate').length,0);
+  } finally { h.close(); }
+});
 for (const platform of ['linux','win32']) {
   test(platform+': selected CLI and picker launch native terminals without changing chat settings',async () => {
     const cwd = platform === 'win32' ? 'C:\\Users\\Test User\\Project' : '/tmp/project with spaces';

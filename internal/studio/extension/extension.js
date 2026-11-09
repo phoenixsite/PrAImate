@@ -233,7 +233,7 @@ class ChatView {
           try { const result = await call(data.method,data.params || {}); view.webview.postMessage({type:'assistantReply',id:data.requestId,result}); }
           catch(error) { view.webview.postMessage({type:'assistantReply',id:data.requestId,error:error.message}); throw error; }
         },
-        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) view.webview.postMessage({type:'navigate',page:this.requestedPage}); },
+        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) { view.webview.postMessage({type:'navigate',page:this.requestedPage}); this.requestedPage = ''; } },
         send:() => this.send(data.text, data.useContext),
         updateConfig:() => configure(data.config),
         quickAction:() => this.quickAction(data.action),
@@ -350,7 +350,11 @@ class ChatView {
     view.onDidDispose(() => { this.views.delete(view); this.readyViews.delete(view); });
   }
   post(message) { for (const view of this.views) view.webview.postMessage(message); }
-  navigate(page) { this.requestedPage = page; this.post({type:'navigate',page}); }
+  navigate(page) {
+    // Keep the request only while no view can receive it live; a stale request would reopen this page on every webview reload.
+    this.requestedPage = this.readyViews.size ? '' : page;
+    this.post({type:'navigate',page});
+  }
   notifyStatus() { this.post({type:'status',status:{...currentStatus,busy:this.busy,chatId:this.chatId,attachments:this.attachments.map(a => path.basename(a))},context:editorContext()}); }
   render() { this.post({type:'messages',messages:this.messages}); this.notifyStatus(); }
   async loadCollection(name, view) {
