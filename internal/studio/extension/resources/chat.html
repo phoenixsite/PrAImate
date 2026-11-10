@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box}body{margin:0;height:100vh;display:flex;flex-direction:column;font:13px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground);background:var(--vscode-sideBar-background)}
-button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--vscode-widget-border,#8884);border-radius:5px;padding:6px 9px;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}button:hover{background:var(--vscode-button-secondaryHoverBackground)}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--vscode-widget-border,#8884);border-radius:5px;padding:6px 9px;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}button:hover{background:var(--vscode-button-secondaryHoverBackground)}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}.danger{border-color:var(--vscode-errorForeground,#f14c4c);color:var(--vscode-errorForeground,#f14c4c)}
 input,select,textarea{min-width:0;width:100%;border:1px solid var(--vscode-input-border,#8885);border-radius:5px;padding:8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground)}input[type=checkbox]{width:auto}
 header{padding:12px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--vscode-widget-border,#8884)}header strong{flex:1;font-size:14px}.hint,.muted{color:var(--vscode-descriptionForeground);line-height:1.5}.hint{font-size:12px;margin:6px 0}.badge{font-size:11px}.online{color:var(--vscode-testing-iconPassed,#4ec9b0)}.error{color:var(--vscode-errorForeground,#e88181)}
 #connection,#notice{padding:10px 12px;border-bottom:1px solid var(--vscode-widget-border,#8884);overflow-wrap:anywhere}#connection-message{margin:0 0 8px}nav{padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--vscode-widget-border,#8884)}nav button{border-color:transparent;background:transparent;padding:6px 8px}nav button[aria-current=page]{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground);border-color:var(--vscode-focusBorder)}
@@ -40,7 +40,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
   <div id="assistant-error" role="alert" class="error" hidden></div>
   <div id="assistant-settings" hidden></div>
   <div id="assistant-approvals"></div><div id="assistant-messages" aria-live="polite"></div><div id="assistant-steps"></div>
-  <div class="composer"><textarea id="assistant-prompt" rows="3" aria-label="Application assistant message" placeholder="Ask PrAImate to find a chat, configure an agent or delegate a task…"></textarea><div class="toolbar" id="assistant-composer"><span id="assistant-phase" class="hint grow"></span><button id="assistant-stop">Stop</button><button id="assistant-send" class="primary">Send</button></div></div>
+  <div class="composer"><textarea id="assistant-prompt" rows="3" aria-label="Application assistant message" placeholder="Ask PrAImate to find a chat, configure an agent or delegate a task…"></textarea><div class="toolbar" id="assistant-composer"><span id="assistant-phase" class="hint grow"></span><button id="assistant-stop" class="danger">Stop</button><button id="assistant-send" class="primary">Send</button></div></div>
 </section>
 <section id="overview-page" class="page" hidden><div class="toolbar"><h1 class="grow">Overview</h1><input id="usage-month" type="month" aria-label="Usage month" style="width:auto"><button id="usage-refresh">Refresh</button></div><p class="hint">Your usage, stored in the encrypted PrAImate profile database.</p><div id="usage-content" aria-live="polite"></div></section>
 <section id="chat-page" class="page">
@@ -49,7 +49,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
   <div class="composer"><details><summary class="hint">Code actions</summary><div id="quick-actions" class="toolbar"></div></details>
     <div id="active-file" class="muted">No active file</div><label for="prompt-input" class="hint">Message</label>
     <textarea id="prompt-input" placeholder="Ask about your project or run ! command… (Enter to send, Shift+Enter for a new line)"></textarea>
-    <div id="attachment-list" class="hint"></div><div class="toolbar"><button id="attach-btn" title="Attach images or documents">Attach…</button><label class="hint grow"><input id="use-context" type="checkbox" checked> Include selection / active file</label><button id="stop-btn" disabled>Stop</button><button id="send-btn" class="primary" disabled>Send</button></div>
+    <div id="attachment-list" class="hint"></div><div class="toolbar"><button id="attach-btn" title="Attach images or documents">Attach…</button><label class="hint grow"><input id="use-context" type="checkbox" checked> Include selection / active file</label><button id="stop-btn" class="danger" disabled>Stop</button><button id="send-btn" class="primary" disabled>Send</button></div>
   </div>
 </section>
 <section id="workers-page" class="page" hidden>
@@ -346,7 +346,8 @@ function renderWorkerGraph(root) {
     if(graphDraftID!==workerSelected || !graphDraft.length) {graphDraftID=workerSelected;graphDraft=JSON.parse(JSON.stringify(graph.tasks || []));graphParallel=graph.maxParallel || 2;}
     section.appendChild(element('p','Review assignments and routes before running. Independent tasks use separate Git worktrees; dependencies start from combined changes.','hint'));
     section.appendChild(button('Save plan',()=>graphAction('workerGraphSave',{tasks:graphDraft,maxParallel:graphParallel})));
-    section.appendChild(button('Run task graph',()=>post('workerGraphSave',{id:workerSelected,tasks:graphDraft,maxParallel:graphParallel},ok=>{if(ok)graphAction('workerGraphExecute');}),!graphDraft.length));
+    const run=button('Run task graph',()=>post('workerGraphSave',{id:workerSelected,tasks:graphDraft,maxParallel:graphParallel},ok=>{if(ok)graphAction('workerGraphExecute');}),!graphDraft.length);
+    run.className='primary';section.appendChild(run);
     section.appendChild(workerInput('Concurrent tasks',graphParallel,v=>graphParallel=v,'number').wrap);
     for(const task of graphDraft) {
       const card=element('fieldset'),legend=element('legend',task.id);card.appendChild(legend);
@@ -424,7 +425,7 @@ function renderWorkerRuns() {
   result.appendChild(element('p',(workerSnapshot.workspace || '')+' · '+new Date(workerSnapshot.startedAt).toLocaleString(),'hint'));
   const label=workerSnapshot.nextRetryAt?'Retrying automatically':({running:'Working',planning:'Planning',draft:'Plan ready',failed:'Needs attention',review:'Ready to review',cancelled:'Stopped',completed:'Completed'}[workerSnapshot.status] || workerSnapshot.status);
   const bar=element('div',label+' · '+(workerSnapshot.accessMode==='full'?'Full access':'Supervised')+' · '+(workerSnapshot.maxRetries || 0)+' automatic retries per task','toolbar');
-  if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
+  if(['running','planning','merging'].includes(workerSnapshot.status)) {const stop=button('Stop',() => post('workerCancel',{id:workerSelected}));stop.className='danger';bar.appendChild(stop);}result.appendChild(bar);
   if(workerSnapshot.dag && workerSnapshot.dag.tasks?.length) {
     if(workerSnapshot.status==='draft')result.appendChild(element('p','Tasks have not started. Review the assignments below, then select Run task graph to start the workers.','hint'));
     const plan=element('details','','worker-plan');plan.open=workerSnapshot.status==='draft' || graphDetailsOpen.has(workerSelected+':plan');plan.appendChild(element('summary',workerSnapshot.status==='draft'?'Review plan':'Plan, routes and integration'));plan.addEventListener('toggle',()=>{if(plan.open)graphDetailsOpen.add(workerSelected+':plan');else graphDetailsOpen.delete(workerSelected+':plan');});renderWorkerGraph(plan);result.appendChild(plan);

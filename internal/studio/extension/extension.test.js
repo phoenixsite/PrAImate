@@ -456,7 +456,9 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   h.send({type:'workerSnapshot',runs:[{id:'dag-run',status:'draft'}],snapshot});
   const graph=descendants(h.elements.get('worker-result')).find(e=>e.className==='worker-graph');
   assert.ok(graph);
-  graph.children.find(e=>e.tag==='button' && e.textContent==='Run task graph').fire('click');
+  const run=graph.children.find(e=>e.tag==='button' && e.textContent==='Run task graph');
+  assert.equal(run.className,'primary','Run task graph uses the same accent style as the GUI');
+  run.fire('click');
   const saved=h.posted.at(-1);
   assert.equal(saved.type,'workerGraphSave');assert.equal(saved.tasks[0].worker.cli,'claude');assert.equal(saved.tasks[0].worker.model,'sonnet');
   h.send({type:'actionResult',id:saved.requestId,ok:true});assert.equal(h.posted.at(-1).type,'workerGraphExecute');
@@ -468,6 +470,13 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   assert.equal(diff.textContent,'<script>malicious</script>');assert.equal(diff.innerHTML,'');
 });
 
+test('Studio Stop buttons use the same danger style as the GUI', () => {
+  const html = fs.readFileSync(path.join(__dirname,'resources','chat.html'),'utf8');
+  assert.match(html,/<button id="stop-btn" class="danger"/);
+  assert.match(html,/<button id="assistant-stop" class="danger"/);
+  assert.match(html,/stop\.className='danger'/);
+  assert.match(html,/\.danger\{border-color:var\(--vscode-errorForeground/);
+});
 test('failed worker tasks show next and previous routes, with an explicit profile reset', () => {
   const h=webviewHarness();
   const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'replacement-'+tier}));
