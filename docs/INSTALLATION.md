@@ -251,6 +251,17 @@ the matching archive prefix. Server accepts combined releases containing Server
 assets and legacy `server-v*` releases, skipping Desktop-only releases. Restart
 Server explicitly after an update when its active work can be interrupted.
 
+Updates validate both the exact archive name and its internal `praimate-edition`
+marker before replacing any executable. A process whose edition disagrees with
+the installed marker refuses to update that directory. Legacy unmarked archives
+are accepted only for Desktop.
+
+Re-running either installer preserves the edition recorded in the destination
+directory unless `--edition` / `-Edition` is explicitly supplied. New installations
+default to Desktop. If an older updater has already installed the wrong edition,
+reinstall the intended edition explicitly into the original prefix; do not use
+`--purge` / `-Purge`. This also writes the edition marker for future updates.
+
 Installers also support `--source` / `-Mode Source`, system-wide installation and
 explicit prefixes. A fresh source clone selects `main` for Desktop and `server`
 for Server; inside a checkout, the installer builds that checkout with the chosen

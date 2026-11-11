@@ -45,7 +45,7 @@
     }
     if (clis.length === 0) api.listCLIs().then((r) => { clis = r || [] }).catch(() => {})
     if (localOpt === null) api.localLLMModels().then((r) => { localOpt = r }).catch(() => { localOpt = { configured: false } })
-    api.listMCPServers().then((r) => { mcpServers = (r || []).filter((s) => s.enabled) }).catch(() => {})
+    loadMCPServers()
     cfgCliChanged()
   }
 
@@ -120,6 +120,11 @@
     }
   }
 
+  async function loadMCPServers() {
+    try { mcpServers = ((await api.mcpServers()) || []).filter((s) => s.enabled) }
+    catch { mcpServers = [] }
+  }
+
   async function openNew() {
     error = ''
     try {
@@ -128,9 +133,10 @@
       const first = clis.find((cli) => cli.available) || clis[0]
       form = {
         agentID: '', cli: first?.id || '', model: '', folder: '', useLocal: false,
-        name: '',
+        name: '', mcps: [],
         localModel: '', suggestions: [], busy: false, preflight: null, preflightChecked: false, skillChoices: null,
       }
+      await loadMCPServers()
       await cliChanged()
     } catch (e) {
       error = String(e)
@@ -146,6 +152,8 @@
   async function agentChanged() {
     if (!form) return
     const nextAgent = agents.find((agent) => agent.id === form.agentID)
+    const enabledMCPs = new Set(mcpServers.map(server => server.id))
+    form.mcps = (nextAgent?.mcp_servers || []).filter(id => enabledMCPs.has(id))
     const allowed = nextAgent?.supports?.length
       ? clis.filter((cli) => nextAgent.supports.includes(cli.id))
       : clis
@@ -213,6 +221,7 @@
       const folder = form.folder
       showToast({ title: 'Opening Documents', message: `Starting ${agentName({ AgentID: form.agentID })} with ${cli} in ${folder}`, tone: 'busy', duration: 0, dismissible: false })
       const createdChatId = await api.prepareStudioChat(folder, form.agentID, cli, model, endpoint, localModel, form.skillChoices)
+      if (createdChatId) await api.setChatMCPServers(createdChatId, form.mcps || [])
       await api.openEditorWindow(folder, form.agentID, cli, model, createdChatId, endpoint, '', localModel)
       if (form.name && createdChatId) await api.renameChat(createdChatId, form.name)
       form = null
@@ -351,6 +360,23 @@
 
       <SkillChoiceDraft bind:choices={form.skillChoices} />
 
+      <div class="lbl" style="margin-top:10px">MCP servers <span class="card-sub" style="font-weight:400">— optional, exposed only to this session.</span></div>
+      {#if mcpServers.length === 0}
+        <div class="card-sub">No enabled MCP servers. Connect and enable one on the MCP page first.</div>
+      {:else}
+        <div class="mcp-grid">
+          {#each mcpServers as s}
+            <label class="mcp-card">
+              <input type="checkbox" value={s.id} bind:group={form.mcps} />
+              <div>
+                <strong>{s.name}</strong>
+                <div class="card-sub">{s.command || s.transport}</div>
+              </div>
+            </label>
+          {/each}
+        </div>
+      {/if}
+
       {#if error}<div class="banner error-banner" role="alert" style="margin-top:12px">{error}</div>{/if}
 
       <div class="row actions" style="margin-top:20px">
@@ -460,9 +486,9 @@
         <div class="mcp-grid">
           {#each mcpServers as s}
             <label class="mcp-card">
-              <input type="checkbox" checked={cfg.mcps?.includes(s.name)} on:change={(e) => {
-                if (e.currentTarget.checked) cfg.mcps = [...(cfg.mcps || []), s.name]
-                else cfg.mcps = (cfg.mcps || []).filter((n) => n !== s.name)
+              <input type="checkbox" checked={cfg.mcps?.includes(s.id)} on:change={(e) => {
+                if (e.currentTarget.checked) cfg.mcps = [...(cfg.mcps || []), s.id]
+                else cfg.mcps = (cfg.mcps || []).filter((id) => id !== s.id)
               }} />
               <div>
                 <strong>{s.name}</strong>

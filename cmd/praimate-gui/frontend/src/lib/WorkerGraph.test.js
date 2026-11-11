@@ -21,6 +21,12 @@ function fixture(t, save) {
   return {graph,calls}
 }
 
+test('primary worker buttons use the shared btn primary style so hover keeps the accent colours', () => {
+  // The generic button:hover rule sets a dark raised background; global button.btn.primary:hover keeps the accent background readable.
+  assert.match(source, /<button class="btn primary" disabled=\{busy \|\| !tasks\.length\}[\s\S]*?>Run task graph<\/button>/)
+  assert.match(source, /<button class="btn primary" disabled=\{busy\} on:click=\{\(\) => action\(async/)
+  assert.match(source, /\.primary:hover:not\(:disabled\)\s*\{[^}]*background: var\(--accent\)/)
+})
 test('running a plan saves current edited assignments before executing once',async t=>{
   let complete
   const {graph,calls}=fixture(t,()=>new Promise(resolve=>{complete=resolve}))

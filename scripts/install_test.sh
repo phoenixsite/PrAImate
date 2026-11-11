@@ -33,9 +33,14 @@ install_bundle() {
   (
     cd "$BUNDLE"
     HOME="$HOME_TEST" XDG_CONFIG_HOME="$CONFIG_TEST" XDG_DATA_HOME="$DATA_TEST" SHELL=/bin/bash \
-      bash "$REPO_ROOT/scripts/install.sh" --prefix "$DEST" --yes
+      bash "$REPO_ROOT/scripts/install.sh" --prefix "$DEST" --yes "$@"
   ) >/dev/null
 }
+
+if bash "$REPO_ROOT/scripts/install.sh" --edition invalid --yes >"$TMPDIR_TEST/invalid.log" 2>&1; then
+  echo "installer accepted an unknown edition" >&2
+  exit 1
+fi
 
 install_bundle
 test -x "$DEST/praimate-gui"
@@ -44,6 +49,27 @@ test -x "$CONFIG_TEST/praimate/bin/praimate-graphify"
 test -f "$TMPDIR_TEST/install space/share/praimate/samples/obsolete.txt"
 test -L "$DEST/praimate-gui-launch"
 test -f "$DATA_TEST/applications/praimate.desktop"
+
+# Reject another edition before overwriting an existing installation.
+printf 'server\n' > "$BUNDLE/praimate-edition"
+printf 'preserve this installation\n' > "$DEST/praimate"
+if install_bundle --edition desktop; then
+  echo "desktop installer accepted a server bundle" >&2
+  exit 1
+fi
+grep -Fx 'preserve this installation' "$DEST/praimate"
+install_bundle --edition server
+grep -Fx server "$DEST/praimate-edition"
+# An update without --edition must retain Server, rather than default to Desktop.
+install_bundle
+grep -Fx server "$DEST/praimate-edition"
+printf 'desktop\n' > "$BUNDLE/praimate-edition"
+if install_bundle --edition server; then
+  echo "server installer accepted a desktop bundle" >&2
+  exit 1
+fi
+install_bundle --edition desktop
+grep -Fx desktop "$DEST/praimate-edition"
 test ! -e "$DATA_TEST/applications/praimate-gui.desktop"
 
 # Launch the installed wrapper with shell files that would exit immediately.

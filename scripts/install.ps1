@@ -11,6 +11,7 @@
 #   .\scripts\install.ps1
 #
 # Parameters:
+#   -Edition Desktop | Server  edition (default: Desktop)
 #   -Mode Binary | Source       what to install (prompts if omitted)
 #   -Prefix <dir>               install dir (default: %LOCALAPPDATA%\Programs\PrAImate)
 #   -AllUsers                   install to %ProgramFiles%\PrAImate (needs admin)
@@ -26,6 +27,8 @@
 param(
     [ValidateSet("Binary","Source","")]
     [string]$Mode = "",
+    [ValidateSet("Desktop", "Server")]
+    [string]$Edition = "Desktop",
     [string]$Prefix = "",
     [switch]$AllUsers,
     [switch]$Yes,
@@ -50,12 +53,6 @@ $Repo = "sPROFFEs/praimate"
 $GitHubURL = "https://github.com"
 $RepoURL = "$GitHubURL/$Repo"
 $ReleaseApiURL = "https://api.github.com/repos/$Repo/releases/latest"
-$SourceBranch = "main"
-# Release tag to pull assets from. When unset we resolve "latest" via
-# the GitHub API at download time so the installer keeps working as
-# the operator publishes new versioned tags (1.0.8, 1.0.9, ...).
-# Override with $env:RELEASE_TAG=<tag> to pin a specific release.
-$ReleaseTag = $env:RELEASE_TAG
 
 # ---------- pretty ----------
 function Step($Text) { Write-Host ""; Write-Host "==> $Text" -ForegroundColor Green }
@@ -107,7 +104,7 @@ if ($Uninstall) {
     foreach ($d in $dests) {
         if (-not (Test-Path $d)) { continue }
         Step "Removing binaries from $d"
-        foreach ($f in @("praimate.exe","wpc.exe","praimate-gui.exe","praimate-code.exe","praimate-cli.exe","praimate-cli.exe.old",
+        foreach ($f in @("praimate.exe","wpc.exe","praimate-gui.exe","praimate-edition","praimate-code.exe","praimate-cli.exe","praimate-cli.exe.old",
                          "praimate.exe.old","praimate-gui.exe.old","praimate-code.exe.old",
                          "PRAIMATE-CODE-LICENSE","PRAIMATE-CODE-NOTICE")) {
             $p = Join-Path $d $f
@@ -224,6 +221,29 @@ function Choose-Dest {
     return (Join-Path $env:LOCALAPPDATA "Programs\PrAImate")
 }
 $Dest = Choose-Dest
+# Keep a pre-existing installation in its edition unless explicitly selected.
+$EditionMarker = Join-Path $Dest "praimate-edition"
+if (-not $PSBoundParameters.ContainsKey('Edition') -and (Test-Path $EditionMarker -PathType Leaf)) {
+    $Edition = (Get-Content -Raw $EditionMarker).Trim()
+}
+if ($Edition.ToLowerInvariant() -notin @('desktop', 'server')) { throw 'Invalid installed edition marker' }
+$Edition = $Edition.ToLowerInvariant()
+$SourceBranch = if ($Edition -eq "server") { "server" } else { "main" }
+$AssetPrefix = if ($Edition -eq "server") { "praimate-server" } else { "praimate" }
+$BuildTags = if ($Edition -eq "server") { "server" } else { "" }
+$RootBuildArgs = @()
+if ($BuildTags) { $RootBuildArgs = @("-tags", $BuildTags) }
+$GuiBuildTags = if ($BuildTags) { "desktop,production,server" } else { "desktop,production" }
+# Release tag to pull assets from. When unset we resolve "latest" via
+# the GitHub API at download time so the installer keeps working as
+# the operator publishes new versioned tags (1.0.8, 1.0.9, ...).
+# Override with $env:RELEASE_TAG=<tag> to pin a specific release.
+$ReleaseTag = $env:RELEASE_TAG
+if ($ReleaseTag) {
+    $tagPattern = if ($Edition -eq "server") { "^(server-)?v[0-9]" } else { "^v[0-9]" }
+    if ($ReleaseTag -notmatch $tagPattern) { throw "Release tag $ReleaseTag does not belong to the $Edition edition" }
+}
+
 if (-not (Test-Path $Dest)) {
     New-Item -ItemType Directory -Path $Dest -Force | Out-Null
 }
@@ -238,8 +258,28 @@ if ($AllUsers -and -not (Test-IsAdmin)) {
     Fail "-AllUsers needs an elevated PowerShell. Re-open as Administrator and re-run."
 }
 
+function Assert-BundleEdition($Bundle) {
+    $marker = Join-Path $Bundle "praimate-edition"
+    $actual = if (Test-Path $marker) { (Get-Content -Raw $marker).Trim() } else { "desktop" }
+    if ($actual -ne $Edition) {
+        throw "This is a $actual bundle, but $Edition was requested. No binaries were replaced."
+    }
+    foreach ($name in @("praimate.exe", "wpc.exe", "praimate-gui.exe")) {
+        if (-not (Test-Path (Join-Path $Bundle $name) -PathType Leaf)) {
+            throw "Bundle is missing mandatory executable $name. No binaries were replaced."
+        }
+    }
+}
+
 # ---------- binary path: GitHub release ----------
 function Resolve-LatestTag {
+    if ($Edition -eq "server") {
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=100" `
+            -UseBasicParsing -Headers @{ "User-Agent" = "praimate-installer" } -ErrorAction Stop
+        $serverRelease = $releases | Where-Object { -not $_.draft -and ($_.tag_name -match '^server-v[0-9]' -or ($_.tag_name -match '^v[0-9]' -and ($_.assets | Where-Object { $_.name -match '^praimate-server-.*\.(zip|tar\.gz)$' }))) } | Select-Object -First 1
+        if (-not $serverRelease) { Fail "No server release has been published yet. Use -Mode Source -Edition Server." }
+        return $serverRelease.tag_name
+    }
     # 1. Try GitHub REST API
     try {
         $headers = @{ "User-Agent" = "praimate-installer"; "Accept" = "application/vnd.github.v3+json" }
@@ -275,7 +315,7 @@ function Install-Binary {
     if (-not $ReleaseTag) {
         $ReleaseTag = Resolve-LatestTag
     }
-    $fname = "praimate-$Triplet.zip"
+    $fname = "$AssetPrefix-$Triplet.zip"
     $url   = "$RepoURL/releases/download/$ReleaseTag/$fname"
     Info "tag:   $ReleaseTag"
     Info "asset: $fname"
@@ -313,6 +353,7 @@ function Install-Binary {
             Fail "unexpected archive layout under $($tmp.FullName)"
         }
 
+        Assert-BundleEdition $extracted
         Step "Installing to $Dest"
         Copy-Item -Path (Join-Path $extracted "praimate.exe") -Destination $Dest -Force
         Copy-Item -Path (Join-Path $extracted "wpc.exe")   -Destination $Dest -Force
@@ -404,11 +445,11 @@ function Install-Source {
         Push-Location (Join-Path $tmp.FullName "PrAImate")
         try {
             $env:CGO_ENABLED = "0"
-            & go build -trimpath -ldflags '-s -w' -o praimate.exe ./cmd/praimate
+            & go build -trimpath @RootBuildArgs -ldflags '-s -w' -o praimate.exe ./cmd/praimate
             if ($LASTEXITCODE -ne 0) { Fail "go build (praimate) failed" }
-            & go build -trimpath -ldflags '-s -w' -o wpc.exe   ./cmd/wpc
+            & go build -trimpath @RootBuildArgs -ldflags '-s -w' -o wpc.exe   ./cmd/wpc
             if ($LASTEXITCODE -ne 0) { Fail "go build (wpc) failed" }
-            & go build -trimpath -ldflags '-s -w' -o praimate-cli.exe ./cmd/praimate-cli
+            & go build -trimpath @RootBuildArgs -ldflags '-s -w' -o praimate-cli.exe ./cmd/praimate-cli
             if ($LASTEXITCODE -ne 0) { Fail "go build (praimate-cli) failed" }
             Push-Location "cmd\praimate-gui\frontend"
             try {
@@ -419,7 +460,7 @@ function Install-Source {
             } finally { Pop-Location }
             Push-Location "cmd\praimate-gui"
             try {
-                & go build -trimpath -tags "desktop,production" `
+                & go build -trimpath -tags $GuiBuildTags `
                     -ldflags "-s -w -H windowsgui" -o praimate-gui.exe .
                 if ($LASTEXITCODE -ne 0) { Fail "go build (praimate-gui) failed" }
             } finally { Pop-Location }
@@ -440,6 +481,7 @@ function Install-Source {
 
 # ---------- local path: bins already next to us ----------
 function Install-Local {
+    Assert-BundleEdition $LocalBins
     Step "Installing to $Dest"
     $gui = Join-Path $LocalBins "praimate-gui.exe"
     if (-not (Test-Path $gui)) { Fail "local bundle is missing mandatory praimate-gui.exe" }
@@ -458,6 +500,9 @@ switch ($Mode) {
     "Local"  { Install-Local }
     default  { Fail "internal: unknown Mode $Mode" }
 }
+
+[IO.File]::WriteAllText((Join-Path $Dest "praimate-edition"), "$Edition`n", [Text.UTF8Encoding]::new($false))
+Info "Installed edition: $Edition"
 
 # ---------- PATH ----------
 Step "Updating PATH"
@@ -514,3 +559,4 @@ try {
 
 Step "Done"
 Write-Host "Open a new terminal, then run:    praimate"
+if ($Edition -eq "server") { Write-Host "Headless server: praimate server --help (configure credentials and TLS before network access)" }

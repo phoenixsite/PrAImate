@@ -25,6 +25,10 @@ func TestReplacementSupportsProjectTextAndMetadata(t *testing.T) {
 			if err := os.WriteFile(path, []byte("before\n"), 0640); err != nil {
 				t.Fatal(err)
 			}
+			// Creation respects umask; set the mode whose preservation is tested.
+			if err := os.Chmod(path, 0640); err != nil {
+				t.Fatal(err)
+			}
 			if err := replaceSource(root, name, "before", "after"); err != nil {
 				t.Fatal(err)
 			}

@@ -213,9 +213,12 @@ function editorContext() {
 }
 
 class ChatView {
-  constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); this.requestedPage = ''; }
-  resolveWebviewView(view, workerID = '') {
+  constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); this.sidebarViews = new Set(); this.requestedPage = ''; }
+  resolveWebviewView(view, workerArg = '') {
+    // VS Code calls this as (view, context, token) for sidebar views; only the worker panel passes a run id string.
+    const workerID = typeof workerArg === 'string' ? workerArg : '';
     this.views.add(view);
+    if (!workerID) this.sidebarViews.add(view);
     view.webview.options = { enableScripts:true, localResourceRoots:[context.extensionUri] };
     const mascot = view.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri,'resources','monke-mascot.png'));
     view.webview.html = fs.readFileSync(path.join(context.extensionPath,'resources','chat.html'),'utf8')
@@ -233,7 +236,7 @@ class ChatView {
           try { const result = await call(data.method,data.params || {}); view.webview.postMessage({type:'assistantReply',id:data.requestId,result}); }
           catch(error) { view.webview.postMessage({type:'assistantReply',id:data.requestId,error:error.message}); throw error; }
         },
-        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) view.webview.postMessage({type:'navigate',page:this.requestedPage}); },
+        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) { view.webview.postMessage({type:'navigate',page:this.requestedPage}); this.requestedPage = ''; } },
         send:() => this.send(data.text, data.useContext),
         updateConfig:() => configure(data.config),
         quickAction:() => this.quickAction(data.action),
@@ -347,10 +350,16 @@ class ChatView {
         output.appendLine(err.message);
       });
     }, undefined, context.subscriptions);
-    view.onDidDispose(() => { this.views.delete(view); this.readyViews.delete(view); });
+    view.onDidDispose(() => { this.views.delete(view); this.readyViews.delete(view); this.sidebarViews.delete(view); });
   }
   post(message) { for (const view of this.views) view.webview.postMessage(message); }
-  navigate(page) { this.requestedPage = page; this.post({type:'navigate',page}); }
+  navigate(page) {
+    // A dedicated worker window must neither consume a sidebar request nor
+    // navigate away from its run when the sidebar changes page.
+    const targets = [...this.readyViews].filter(view => this.sidebarViews.has(view));
+    this.requestedPage = targets.length ? '' : page;
+    for (const view of targets) view.webview.postMessage({type:'navigate',page});
+  }
   notifyStatus() { this.post({type:'status',status:{...currentStatus,busy:this.busy,chatId:this.chatId,attachments:this.attachments.map(a => path.basename(a))},context:editorContext()}); }
   render() { this.post({type:'messages',messages:this.messages}); this.notifyStatus(); }
   async loadCollection(name, view) {

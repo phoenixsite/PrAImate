@@ -1,4 +1,4 @@
-import { workerExecutions, workerTaskRoute, workerLabel } from './workerActivity.js'
+import { activeWorkerRun, workerExecutions, workerTaskRoute, workerLabel } from './workerActivity.js'
 
 export const workerColumns = [
   { id: 'attention', label: 'Needs you', icon: '?' },
@@ -14,14 +14,21 @@ function column(status) {
   return 'queued'
 }
 
+function reviewLabel(review, runActive) {
+  if (review !== 'pending') return review === 'merged' ? 'Merged' : review === 'accepted' ? 'Approved' : 'Completed'
+  return runActive ? 'Completed · review when execution ends' : 'Ready to review'
+}
+
 export function workerBoardItems(run) {
   const attempts = workerExecutions(run)
+  const runActive = activeWorkerRun(run)
   const items = (run?.dag?.tasks || []).map(task => {
     const history = attempts.filter(attempt => attempt.taskID === task.id)
     const latest = history.at(-1)
+    const statusLabel = task.status === 'completed' ? reviewLabel(task.review, runActive) : ''
     return { id: task.id, taskID: task.id, attemptID: latest?.id || '', title: task.id, description: task.description,
-      status: task.status, column: task.status === 'completed' && task.review === 'pending' ? 'attention' : column(task.status), route: workerTaskRoute(task, run), tier: task.worker?.profile || 'middle',
-      preview: task.description || task.output || latest?.output, error: task.error, autoRetriesUsed: task.autoRetriesUsed || 0, nextRetryAt: task.nextRetryAt, attempts: history.length, review: task.review, dependencies: task.dependencies || [] }
+      status: task.status, column: task.status === 'completed' && task.review === 'pending' && !runActive ? 'attention' : column(task.status), route: workerTaskRoute(task, run), tier: task.worker?.profile || 'middle',
+      preview: task.description || task.output || latest?.output, error: task.error, autoRetriesUsed: task.autoRetriesUsed || 0, nextRetryAt: task.nextRetryAt, attempts: history.length, review: task.review, reviewLabel: statusLabel, runActive, dependencies: task.dependencies || [] }
   })
   if (!(run?.dag?.tasks || []).length) {
     const tiers = [...new Set(attempts.filter(a => !a.taskID).map(a => a.tier))]
@@ -50,7 +57,7 @@ export function mergeWorkerEvents(history, live) {
 
 export function workerStatusLabel(item) {
   if (item.status === 'retrying') return 'Retry scheduled'
-  if (item.status === 'completed') return item.review === 'pending' ? 'Ready to review' : item.review === 'merged' ? 'Merged' : item.review === 'accepted' ? 'Approved' : 'Completed'
+  if (item.status === 'completed') return reviewLabel(item.review, item.runActive)
   return {pending:item.dependencies?.length ? 'Waiting for dependencies' : 'Queued',running:'Working',waiting:'Delegating',planning:'Planning',failed:'Failed',blocked:'Dependency failed',cancelled:'Stopped',interrupted:'Interrupted'}[item.status] || item.status
 }
 export function workerRunSummary(run) {

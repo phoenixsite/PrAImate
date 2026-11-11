@@ -182,6 +182,26 @@ test('bulk session skill choices use on-demand loading instead of exceeding the 
     assert.deepEqual(h.errors,[]);
   } finally {h.close();}
 });
+test('a dedicated worker window does not consume a pending sidebar navigation', async () => {
+  const h=extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    const webview=()=>{
+      const messages=[];let receive;
+      const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+      return {view,messages,ready:()=>receive({type:'ready'})};
+    };
+    const worker=webview();h.provider().resolveWebviewView(worker.view,'saved-run');worker.ready();
+    await h.commands.get('praimate.focusWorkers')();
+    assert.equal(h.provider().requestedPage,'workers');
+    assert.deepEqual(worker.messages.filter(m=>m.type==='navigate').map(m=>m.workerID),['saved-run']);
+    const sidebar=webview();h.provider().resolveWebviewView(sidebar.view,{state:undefined});sidebar.ready();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(sidebar.messages.filter(m=>m.type==='navigate').map(m=>m.page),['workers']);
+    assert.equal(h.provider().requestedPage,'');
+  } finally {h.close();}
+});
 for (const platform of ['linux','win32']) {
   test(platform+': launches stdio with spaced paths and persists chat identity', async () => {
     const h = extensionHarness(platform);
@@ -213,6 +233,71 @@ test('Workers command is registered and opens the Workers page', async () => {
     assert.equal(h.provider().requestedPage,'workers');
     const manifest=JSON.parse(fs.readFileSync(path.join(__dirname,'package.json'),'utf8'));
     assert.ok(manifest.contributes.commands.some(command => command.command === 'praimate.focusWorkers'));
+  } finally { h.close(); }
+});
+test('a Workers request is not replayed when the sidebar webview is recreated', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    const webview = () => {
+      const messages=[];let receive;
+      const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+      return {view,messages,ready:()=>receive({type:'ready'})};
+    };
+    const first = webview();
+    h.provider().resolveWebviewView(first.view);
+    first.ready();
+    await h.commands.get('praimate.focusWorkers')();
+    assert.deepEqual(first.messages.filter(m=>m.type==='navigate').map(m=>m.page),['workers'],'the live view receives the request once');
+    assert.equal(h.provider().requestedPage,'');
+    const second = webview();
+    h.provider().resolveWebviewView(second.view);
+    second.ready();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(second.messages.filter(m=>m.type==='navigate').length,0,'a recreated view must not be sent the old request');
+  } finally { h.close(); }
+});
+test('a Workers request made before the sidebar exists is delivered once on its first ready', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    await h.commands.get('praimate.focusWorkers')();
+    const webview = () => {
+      const messages=[];let receive;
+      const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+      return {view,messages,ready:()=>receive({type:'ready'})};
+    };
+    const first = webview();
+    h.provider().resolveWebviewView(first.view);
+    first.ready();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(first.messages.filter(m=>m.type==='navigate').map(m=>m.page),['workers']);
+    const second = webview();
+    h.provider().resolveWebviewView(second.view);
+    second.ready();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(second.messages.filter(m=>m.type==='navigate').length,0);
+  } finally { h.close(); }
+});
+test('sidebar views resolved by VS Code with a context object are not treated as worker panels', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    const messages=[];let receive;
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view,{state:undefined},{isCancellationRequested:false});
+    receive({type:'ready'});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(messages.filter(m=>m.type==='navigate').length,0);
+    const panel=[];let panelReceive;
+    const worker={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>panel.push(m),onDidReceiveMessage:fn=>{panelReceive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(worker,'saved-run');
+    panelReceive({type:'ready'});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(panel.filter(m=>m.type==='navigate').map(m=>[m.page,m.workerID]),[['workers','saved-run']]);
   } finally { h.close(); }
 });
 for (const platform of ['linux','win32']) {
@@ -456,7 +541,9 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   h.send({type:'workerSnapshot',runs:[{id:'dag-run',status:'draft'}],snapshot});
   const graph=descendants(h.elements.get('worker-result')).find(e=>e.className==='worker-graph');
   assert.ok(graph);
-  graph.children.find(e=>e.tag==='button' && e.textContent==='Run task graph').fire('click');
+  const run=graph.children.find(e=>e.tag==='button' && e.textContent==='Run task graph');
+  assert.equal(run.className,'primary','Run task graph uses the same accent style as the GUI');
+  run.fire('click');
   const saved=h.posted.at(-1);
   assert.equal(saved.type,'workerGraphSave');assert.equal(saved.tasks[0].worker.cli,'claude');assert.equal(saved.tasks[0].worker.model,'sonnet');
   h.send({type:'actionResult',id:saved.requestId,ok:true});assert.equal(h.posted.at(-1).type,'workerGraphExecute');
@@ -466,6 +553,23 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   const card=rendered.children.find(e=>e.tag==='article');
   const diff=card.children.find(e=>e.tag==='details' && e.children[0].textContent==='Git diff').children[1];
   assert.equal(diff.textContent,'<script>malicious</script>');assert.equal(diff.innerHTML,'');
+});
+
+test('completed worker review waits in Done while the run is still executing', () => {
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const completed={id:'a',description:'A',dependencies:[],worker:{profile:'middle'},status:'completed',review:'pending',result:{baseCommit:'base',resultCommit:'result',changedFiles:[],diff:''}};
+  const running={id:'b',description:'B',dependencies:[],worker:{profile:'fast'},status:'running'};
+  const snapshot={id:'run',task:'objective',status:'running',updatedAt:'one',profiles,events:[],dag:{tasks:[completed,running],maxParallel:2,targetBranch:'main',baseCommit:'abc'}};
+  const laneTitles=()=>descendants(h.elements.get('worker-lanes')).filter(e=>e.tag==='h2').map(e=>e.textContent);
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'running'}],snapshot});
+  assert.deepEqual(laneTitles(),['Needs you · 0','Working · 1','Done · 1','Queued · 0']);
+  assert.ok(descendants(h.elements.get('worker-lanes')).some(e=>e.textContent.includes('Completed · review when execution ends')));
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:{...snapshot,status:'review',updatedAt:'two',dag:{...snapshot.dag,tasks:[completed]}}});
+  assert.deepEqual(laneTitles(),['Needs you · 1','Working · 0','Done · 0','Queued · 0']);
+  assert.ok(descendants(h.elements.get('worker-lanes')).some(e=>e.textContent.includes('Ready to review')));
 });
 
 test('failed worker tasks show next and previous routes, with an explicit profile reset', () => {

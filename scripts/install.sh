@@ -18,6 +18,7 @@
 # Flags:
 #   --binary           grab the prebuilt release tarball (default in one-liner mode)
 #   --source           git clone + go build (installs Go if missing, asking first)
+#   --edition <name>   desktop (default) or server (remote-capable build)
 #   --user             install to ~/.local/bin (no sudo)
 #   --system           install to /usr/local/bin (sudo when needed)
 #   --prefix <dir>     custom install dir
@@ -34,6 +35,10 @@ GITHUB_URL="https://github.com"
 REPO_URL="$GITHUB_URL/$REPO"
 RELEASE_API_URL="https://api.github.com/repos/$REPO/releases/latest"
 SOURCE_BRANCH="main"
+EDITION="desktop"
+EDITION_EXPLICIT=0
+ASSET_PREFIX="praimate"
+BUILD_TAGS=""
 # Release tag to pull assets from. When unset we resolve "latest" via
 # the GitHub API at download time so the installer keeps working as
 # the operator publishes new versioned tags (1.0.8, 1.0.9, ...).
@@ -52,6 +57,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --binary)    MODE="binary"  ; shift ;;
     --source)    MODE="source"  ; shift ;;
+    --edition)
+      [[ $# -ge 2 ]] || { printf 'missing value for --edition\n' >&2; exit 2; }
+      EDITION="$2"; EDITION_EXPLICIT=1; shift 2 ;;
+    --edition=*) EDITION="${1#--edition=}"; EDITION_EXPLICIT=1; shift ;;
     --user)      PREFIX_MODE="user" ; shift ;;
     --system)    PREFIX_MODE="system" ; shift ;;
     --prefix)    PREFIX="$2"   ; shift 2 ;;
@@ -72,6 +81,10 @@ EOF
   esac
 done
 
+
+# Validate explicit input before resolving a destination or requesting sudo.
+case "$EDITION" in desktop|server) ;; *) printf 'unknown edition: %s (use desktop or server)\n' "$EDITION" >&2; exit 2 ;; esac
+
 # ---------- uninstall ----------
 do_uninstall() {
   local dests=() d removed=0
@@ -80,7 +93,7 @@ do_uninstall() {
   else
     dests=("$HOME/.local/bin" "/usr/local/bin")
   fi
-  local files=(praimate wpc praimate-gui praimate-code praimate-cli praimate-launch
+  local files=(praimate wpc praimate-gui praimate-code praimate-cli praimate-edition praimate-launch
                praimate-gui-launch PRAIMATE-CODE-LICENSE PRAIMATE-CODE-NOTICE)
   for d in "${dests[@]}"; do
     [[ -d "$d" ]] || continue
@@ -227,6 +240,9 @@ find_source_dir() {
   for cand in "$PWD" "$HERE/.."; do
     [[ -n "$cand" ]] || continue
     if [[ -f "$cand/go.mod" && -d "$cand/cmd/praimate" && -d "$cand/cmd/wpc" ]]; then
+      if [[ "$EDITION" == server && ! -f "$cand/internal/version/edition_server.go" ]]; then
+        continue
+      fi
       (cd "$cand" && pwd)
       return 0
     fi
@@ -291,6 +307,23 @@ choose_dest() {
 }
 
 DEST="$(choose_dest)"
+# Re-running the installer updates this installation's edition by default.
+# --edition remains an explicit request to install a different edition.
+if [[ "$EDITION_EXPLICIT" == 0 && -f "$DEST/praimate-edition" ]]; then
+  EDITION="$(cat "$DEST/praimate-edition")"
+fi
+case "$EDITION" in
+  desktop) ;;
+  server) SOURCE_BRANCH="server"; ASSET_PREFIX="praimate-server"; BUILD_TAGS="server" ;;
+  *) printf 'unknown edition: %s (use desktop or server)\n' "$EDITION" >&2; exit 2 ;;
+esac
+if [[ -n "$RELEASE_TAG" ]]; then
+  case "$EDITION:$RELEASE_TAG" in
+    desktop:v[0-9]*|server:server-v[0-9]*|server:v[0-9]*) ;;
+    *) printf 'release tag %s does not belong to the %s edition\n' "$RELEASE_TAG" "$EDITION" >&2; exit 2 ;;
+  esac
+fi
+
 mkdir -p "$DEST" 2>/dev/null || true
 
 SUDO=""
@@ -374,6 +407,29 @@ sync_bundle_extras() {
   sync_samples "$bundle"
 }
 
+# A legacy unmarked bundle is desktop-only. Check before replacing any files.
+validate_bundle_edition() {
+  local bundle="$1" actual="desktop"
+  if [[ -f "$bundle/praimate-edition" ]]; then
+    actual="$(cat "$bundle/praimate-edition")"
+  fi
+  if [[ "$actual" != "$EDITION" ]]; then
+    c_red "This is a $actual bundle, but $EDITION was requested. No binaries were replaced."
+    return 1
+  fi
+  [[ -f "$bundle/praimate" && -f "$bundle/wpc" && -f "$bundle/praimate-gui" ]] || {
+    c_red 'bundle is missing a mandatory PrAImate executable'; return 1;
+  }
+}
+
+record_installed_edition() {
+  local marker
+  marker="$(mktemp)"
+  printf '%s\n' "$EDITION" > "$marker"
+  $SUDO install -m 0644 "$marker" "$DEST/praimate-edition"
+  rm -f "$marker"
+}
+
 # ---------- binary path: GitHub release ----------
 detect_downloader() {
   if command -v curl >/dev/null 2>&1; then printf 'curl'
@@ -395,7 +451,39 @@ fetch() {
 
 resolve_latest_tag() {
   local dl tag
+  tag=""
   dl="$(detect_downloader)"
+  if [[ "$EDITION" == server ]]; then
+    # A joint v* release is compatible only when it actually contains Server.
+    local releases_url="https://api.github.com/repos/$REPO/releases?per_page=100" payload=""
+    if [[ "$dl" == curl ]]; then
+      payload="$(curl -fsSL -H 'User-Agent: praimate-installer' "$releases_url")" || return 1
+    else
+      payload="$(wget -q -O - "$releases_url")" || return 1
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+      tag="$(printf '%s' "$payload" | python3 -c '
+import json,sys
+for r in json.load(sys.stdin):
+ t=r.get("tag_name","")
+ if not r.get("draft") and (t.startswith("server-v") or (t.startswith("v") and any(a.get("name","").startswith("praimate-server-") and a.get("name","").endswith((".tar.gz",".zip")) for a in r.get("assets",[])))):
+  print(t);break
+')"
+    else
+      tag="$(printf '%s' "$payload" | tr ',' '\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(server-v[0-9][^"]*\)".*/\1/p')"
+      if [[ -z "$tag" && "$dl" == curl ]]; then
+        local web_tag shared_os shared_arch
+        web_tag="$(curl -fsSI "$REPO_URL/releases/latest" 2>/dev/null | sed -n 's|.*[Ll]ocation:.*\/tag\/\([^[:space:]\r]*\).*|\1|p' | head -1)"
+        shared_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        shared_arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+        if [[ "$web_tag" == v[0-9]* ]] && curl -fsSI "$REPO_URL/releases/download/$web_tag/praimate-server-$shared_os-$shared_arch.tar.gz" >/dev/null 2>&1; then tag="$web_tag"; fi
+      fi
+    fi
+    tag="${tag%%$'\n'*}"
+    [[ -n "$tag" ]] || { c_red 'No server release has been published yet. Use --source --edition server.'; return 1; }
+    printf '%s' "$tag"
+    return
+  fi
 
   # 1. Try web redirect first to bypass GitHub API 60 req/hr rate limit / 403 Forbidden
   if [[ "$dl" == "curl" ]]; then
@@ -431,7 +519,7 @@ install_from_release() {
   if [[ -z "$RELEASE_TAG" ]]; then
     RELEASE_TAG="$(resolve_latest_tag)"
   fi
-  local fname="praimate-${TRIPLET}.tar.gz"
+  local fname="${ASSET_PREFIX}-${TRIPLET}.tar.gz"
   local url="$REPO_URL/releases/download/${RELEASE_TAG}/${fname}"
   c_dim "  tag:     $RELEASE_TAG"
   c_dim "  asset:   $fname"
@@ -451,11 +539,13 @@ install_from_release() {
   tar -xzf "$tmp/$fname" -C "$tmp"
   local extracted="$tmp/$TRIPLET"
   [[ -d "$extracted" ]] || { c_red "unexpected archive layout under $tmp"; exit 1; }
+  validate_bundle_edition "$extracted"
 
   step "Installing to $DEST"
   $SUDO install -m 0755 "$extracted/praimate" "$DEST/praimate"
   $SUDO install -m 0755 "$extracted/wpc"   "$DEST/wpc"
   sync_bundle_extras "$extracted"
+  record_installed_edition
   c_grn "  ✓ praimate + wpc installed"
 }
 
@@ -563,18 +653,18 @@ install_from_source() {
     GOOS="$(uname -s | tr '[:upper:]' '[:lower:]')" \
     GOARCH="$(case $(uname -m) in x86_64|amd64) printf amd64;; aarch64|arm64) printf arm64;; esac)" \
     CGO_ENABLED=0 \
-    go build -trimpath -ldflags '-s -w' -o "$builddir/praimate" ./cmd/praimate
+    go build -trimpath -tags "$BUILD_TAGS" -ldflags '-s -w' -o "$builddir/praimate" ./cmd/praimate
     GOOS="$(uname -s | tr '[:upper:]' '[:lower:]')" \
     GOARCH="$(case $(uname -m) in x86_64|amd64) printf amd64;; aarch64|arm64) printf arm64;; esac)" \
     CGO_ENABLED=0 \
-    go build -trimpath -ldflags '-s -w' -o "$builddir/wpc" ./cmd/wpc
-    CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$builddir/praimate-cli" ./cmd/praimate-cli
+    go build -trimpath -tags "$BUILD_TAGS" -ldflags '-s -w' -o "$builddir/wpc" ./cmd/wpc
+    CGO_ENABLED=0 go build -trimpath -tags "$BUILD_TAGS" -ldflags '-s -w' -o "$builddir/praimate-cli" ./cmd/praimate-cli
   )
 
   step "Building GUI"
   ext="$(gui_ext)"
   gui_bin="$src/cmd/praimate-gui/praimate-gui$ext"
-  if ! build_gui_from_source "$src"; then
+  if ! PRAIMATE_EDITION="$EDITION" build_gui_from_source "$src"; then
     c_red "The mandatory PrAImate desktop app could not be built."
     c_red "Install the missing GUI dependencies above and re-run this installer."
     exit 1
@@ -594,15 +684,18 @@ install_from_source() {
   remove_managed_file "$DEST/PRAIMATE-CODE-NOTICE" "Praimate Code notice"
   remove_managed_file "$(graphify_bin)" "praimate-graphify"
   sync_samples "$src"
+  record_installed_edition
   c_grn "  ✓ $installed installed"
 }
 
 # ---------- local path: bins already next to us ----------
 install_local() {
+  validate_bundle_edition "$LOCAL_BINS"
   step "Installing to $DEST"
   $SUDO install -m 0755 "$LOCAL_BINS/praimate" "$DEST/praimate"
   $SUDO install -m 0755 "$LOCAL_BINS/wpc"   "$DEST/wpc"
   sync_bundle_extras "$LOCAL_BINS"
+  record_installed_edition
   c_grn "  ✓ praimate + wpc installed"
 }
 
@@ -798,5 +891,7 @@ ICON_SRC=""
 create_shortcuts "$ICON_SRC"
 
 step "Done"
+printf 'Edition:   %s\n' "$EDITION"
 printf 'Try it:    %s -version\n' "$DEST/praimate"
 printf '(after PATH update, run `praimate` to launch the desktop app)\n'
+if [[ "$EDITION" == server ]]; then printf 'Headless server: praimate server --help (configure credentials and TLS before network access)\n'; fi

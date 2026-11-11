@@ -60,7 +60,7 @@
   <div class="graph-head"><h3>Parallel task graph</h3><span>{snapshot.dag.targetBranch} · base {snapshot.dag.baseCommit?.slice(0, 10)}</span></div>
   {#if editable}
     <p class="hint">Review the plan and each worker route before starting. Independent tasks run in separate worktrees; dependencies start from their combined changes.</p>
-    <div class="actions"><button disabled={busy} on:click={() => action(() => api.saveWorkerDAG(snapshot.id, tasks, parallel))}>Save plan</button><button class="primary" disabled={busy || !tasks.length} on:click={execute}>Run task graph</button></div>
+    <div class="actions"><button disabled={busy} on:click={() => action(() => api.saveWorkerDAG(snapshot.id, tasks, parallel))}>Save plan</button><button class="btn primary" disabled={busy || !tasks.length} on:click={execute}>Run task graph</button></div>
     <label>Concurrent tasks <input type="number" min="1" max="4" bind:value={parallel} /></label>
     {#each tasks as task, index (task.id)}
       <fieldset disabled={busy}>
@@ -85,6 +85,7 @@
       </fieldset>
     {/each}
   {:else}
+    {#if active && (snapshot.dag.tasks || []).some(t => t.status === 'completed' && t.review === 'pending')}<p class="hint">Accept and reject unlock when the task graph finishes executing.</p>{/if}
     <div class="task-cards">
       {#each snapshot.dag.tasks || [] as task (task.id)}
         <article>
@@ -105,9 +106,9 @@
             <p class="hint">{task.result.baseCommit.slice(0, 10)} → {task.result.resultCommit.slice(0, 10)}</p>
             <p class="path">{task.result.changedFiles?.join(', ') || 'No file changes'}</p>
             <details><summary>Git diff{task.result.diffTruncated ? ' (preview)' : ''}</summary><pre class="diff">{task.result.diff || 'No changes'}</pre></details>
-            {#if task.review !== 'merged'}<div class="actions"><button disabled={busy || active} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept</button><button disabled={busy || active} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject</button></div>{/if}
+            {#if task.review !== 'merged'}<div class="actions"><button disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept</button><button disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject</button></div>{/if}
           {/if}
-          {#if !active && ['failed', 'cancelled', 'blocked'].includes(task.status)}<div class="actions">{#if task.failurePhase === 'dependencies'}<button class="primary" disabled={busy} on:click={() => action(async () => {await api.resolveWorkerDAGTaskConflicts(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id)})}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={() => action(async () => { await api.retryWorkerDAGTask(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id) })}>{task.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue with existing changes'}</button><button disabled={busy} on:click={() => reset(task)}>Start over…</button></div>{/if}
+          {#if !active && ['failed', 'cancelled', 'blocked'].includes(task.status)}<div class="actions">{#if task.failurePhase === 'dependencies'}<button class="btn primary" disabled={busy} on:click={() => action(async () => {await api.resolveWorkerDAGTaskConflicts(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id)})}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={() => action(async () => { await api.retryWorkerDAGTask(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id) })}>{task.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue with existing changes'}</button><button disabled={busy} on:click={() => reset(task)}>Start over…</button></div>{/if}
           <details><summary>Task activity</summary>{#each (snapshot.events || []).filter(e => e.taskID === task.id).slice(-40) as event}<small>{event.kind}</small><pre>{event.text}</pre>{/each}</details>
         </article>
       {/each}
@@ -140,4 +141,5 @@
   summary { cursor: pointer; margin: 10px 0; font-size: 12px; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 11px; } .diff { background: var(--bg-elevated, var(--bg)); padding: 8px; }
   .error { color: var(--danger, #d74453); overflow-wrap: anywhere; } button { padding: 7px 12px; border-radius: var(--radius-sm); background: var(--bg-panel); border: 1px solid var(--border-bright); color: var(--text); cursor: pointer; transition: background 140ms var(--ease); } button:hover:not(:disabled) { background: var(--bg-raised); } button:disabled { opacity: .5; cursor: default; } .primary { background: var(--accent); color: var(--accent-fg); }
+  .primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); filter: brightness(0.92); }
 </style>

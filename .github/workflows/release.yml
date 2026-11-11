@@ -167,7 +167,7 @@ jobs:
           # If release already exists for this tag, upload/update assets
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists. Uploading assets..."
-            gh release upload "$TAG" release-dist/* --clobber
+            python3 scripts/upload-release-assets.py "$TAG" release-dist
           else
             echo "Creating new release $TAG..."
             gh release create "$TAG" release-dist/* \
