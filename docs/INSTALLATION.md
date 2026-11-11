@@ -187,6 +187,11 @@ contains both editions. For newer versions, select a compatible entry in
 replacement application packages. App archives are self-contained; shared
 standalone assets are published once per platform. `SHA256SUMS` covers the assets.
 
+The `praimate-desktop-windows-*` ZIPs are byte-identical compatibility aliases of
+the Windows Desktop packages above. They let older Desktop updaters select the
+correct edition from GitHub's sorted asset list. New installers and updaters use
+the canonical names in the table.
+
 ### Install an extracted archive
 
 Extract into its own directory and open its platform subdirectory, such as

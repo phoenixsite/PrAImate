@@ -10,8 +10,10 @@ the signed Android preview is **1.3.5**, newer than the previous APK-only update
   its internal edition marker and the installation's marker before replacing any
   executable. Legacy unmarked archives are Desktop-only.
 - Preserve the installed edition when re-running either installer unless an
-  edition is explicitly selected. Upload Desktop archives before Server archives
-  for compatibility with older Desktop selectors.
+  edition is explicitly selected. Provide byte-identical
+  `praimate-desktop-windows-*` compatibility archives so older Desktop updaters
+  select Desktop even when GitHub sorts Server assets before the canonical
+  Windows Desktop filenames.
 - Keep completed worker results in Done while other tasks execute, then move
   pending reviews to Needs you. Explain when Accept/Reject become available in
   Desktop and Studio. Resolves #26; incorporates reviewed PR #27.
