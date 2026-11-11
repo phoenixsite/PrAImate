@@ -32,7 +32,7 @@ commands and permission boundaries.
 | **Android preview** | Control a running Server from your phone or tablet | `praimate-mobile-preview.apk` |
 
 The `main` branch remains desktop-only; Server and Android are developed on
-`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.3)
+`server`. The [combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.3.4)
 provides both application editions and the APK. Shared standalone CLI/tools are
 published once per platform; application archives are self-contained.
 
@@ -115,7 +115,7 @@ panel. See [system startup and unattended unlock](docs/SERVER-STARTUP.md).
 
 ### Android preview
 
-Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.3/praimate-mobile-preview.apk)**,
+Download **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.4/praimate-mobile-preview.apk)**,
 install it on Android, add the Server's HTTPS origin and pair with its one-use
 code. If Cloudflare Access is enabled, complete its email/PIN login first.
 Android connects to Server; it cannot use the Desktop-only edition as a backend.
