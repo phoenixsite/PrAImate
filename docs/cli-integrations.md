@@ -129,6 +129,8 @@ blocks redirects and removes its authentication header before forwarding to the
 remote provider. Revoking consent also blocks new requests from existing CLI
 processes. Its transient routes do not change saved provider URLs, and its
 listener closes with the core.
+CLI launch environments exclude its loopback address from HTTP proxies while
+preserving the user's other proxy exclusions and upstream proxy settings.
 
 The same launch preparation serves Desktop chats, Studio, workflows and
 terminals. Both PrAImate Code and external OpenCode also receive a public PEM

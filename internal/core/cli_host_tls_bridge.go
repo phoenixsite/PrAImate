@@ -228,6 +228,28 @@ func (c *Core) prepareCLIHostTLSRoutes(ctx context.Context, cfg *EffectiveExecut
 			return err
 		}
 		cfg.Env["OPENCODE_CONFIG_CONTENT"] = string(raw)
+		// Bun honors proxy environment variables even for loopback. Keep the
+		// authenticated local request inside this machine, preserving every
+		// existing proxy exclusion and leaving the upstream proxy unchanged.
+		for _, key := range []string{"NO_PROXY", "no_proxy"} {
+			value, exists := cfg.Env[key]
+			if !exists {
+				value = os.Getenv(key)
+			}
+			excluded := false
+			for _, host := range strings.Split(value, ",") {
+				if host = strings.TrimSpace(host); host == "127.0.0.1" || host == "*" {
+					excluded = true
+				}
+			}
+			if !excluded {
+				if strings.TrimSpace(value) != "" {
+					value += ","
+				}
+				value += "127.0.0.1"
+			}
+			cfg.Env[key] = value
+		}
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -249,8 +250,19 @@ func TestCLIHostTLSBridgeWithBunMissingIssuer(t *testing.T) {
 		t.Skip("set PRAIMATE_TEST_BUN_BINARY to exercise Bun fetch with missing issuer")
 	}
 	c := nativeTestCore(t)
+	t.Setenv("NO_PROXY", "from-process.example")
+	t.Setenv("no_proxy", "lowercase.example")
 	backend := missingIssuerServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "bridge-ready") }))
 	cfg := trustedBridgeConfig(t, c, backend.URL, "opencode")
+	if cfg.Env["NO_PROXY"] != "from-process.example,127.0.0.1" || cfg.Env["no_proxy"] != "lowercase.example,127.0.0.1" {
+		t.Fatal("existing proxy exclusions were not preserved")
+	}
+	var proxied atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied.Add(1)
+		io.WriteString(w, "local request must bypass the proxy")
+	}))
+	defer proxy.Close()
 	endpoint, headers := bridgeProvider(t, cfg)
 	flat := map[string]string{}
 	for key := range headers {
@@ -260,10 +272,13 @@ func TestCLIHostTLSBridgeWithBunMissingIssuer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "-e", `fetch(process.env.FIXTURE_URL,{headers:JSON.parse(process.env.FIXTURE_HEADERS)}).then(async r=>{if(!r.ok)throw new Error(await r.text());console.log(await r.text())}).catch(e=>{console.error(e.message);process.exitCode=1})`)
-	cmd.Env = []string{"FIXTURE_URL=" + endpoint, "FIXTURE_HEADERS=" + string(raw)}
+	cmd.Env = []string{"FIXTURE_URL=" + endpoint, "FIXTURE_HEADERS=" + string(raw), "HTTP_PROXY=" + proxy.URL, "NO_PROXY=" + cfg.Env["NO_PROXY"], "no_proxy=" + cfg.Env["no_proxy"]}
 	out, err := cmd.CombinedOutput()
 	if err != nil || strings.TrimSpace(string(out)) != "bridge-ready" {
 		t.Fatalf("Bun could not use the accepted leaf without its issuer: %s %v", out, err)
+	}
+	if proxied.Load() != 0 {
+		t.Fatal("local transport request reached the configured proxy")
 	}
 }
 

@@ -19,6 +19,8 @@ server-side fix.
   streaming and resumed sessions. Ephemeral routing does not rewrite saved
   project provider URLs. The local authentication header never reaches the LLM
   server, and redirects are blocked.
+- Bypass HTTP proxies for the authenticated loopback hop, including in Bun.
+  Preserve existing proxy exclusions and the remote endpoint's proxy settings.
 - Check current trust on every forwarded request. Revoking trust blocks further
   requests from already running clients. Close the listener on app exit or data
   reset.
