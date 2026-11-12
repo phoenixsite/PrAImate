@@ -44,6 +44,9 @@ type Core struct {
 	managedActive    map[string]bool
 	nativeLimits     nativeLimitCache
 	nativeCatalogue  modelCatalogueCache
+	cliTLSMu         sync.Mutex
+	cliTLSBridge     *cliHostTLSBridge
+	cliTLSClosed     bool
 	artifactMu       sync.Mutex
 	artifacts        *artifacts.Service
 	artifactCancel   context.CancelFunc
@@ -123,7 +126,7 @@ func New(opts Options) (*Core, error) {
 
 // Close releases any resources Core owns. The store is NOT closed here
 // — callers own its lifetime since they supplied it.
-func (c *Core) Close() error { return nil }
+func (c *Core) Close() error { return c.closeCLIHostTLS() }
 
 // Store exposes the underlying store, if any. Used by tests and by
 // migrations that haven't grown a typed Core method yet.

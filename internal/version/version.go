@@ -14,7 +14,7 @@ const Name = "PrAImate"
 // override it at link time with `-ldflags "-X .../internal/version.Current=X.Y.Z"`.
 // The literal here is the fallback when nothing is injected (e.g.
 // `go run`, `go install`, or `go build` without our scripts).
-var Current = "1.3.4"
+var Current = "1.3.5"
 
 // ForgeBaseURL is the canonical GitHub web URL for this repository.
 const ForgeBaseURL = "https://github.com"

@@ -33,17 +33,35 @@ func TestPraimateCodeInstalledHostTLS(t *testing.T) {
 	if !filepath.IsAbs(bin) {
 		t.Fatal("PRAIMATE_TEST_CODE_BINARY must be absolute")
 	}
-	for _, mode := range []string{"self-signed", "chain", "ca"} {
-		t.Run(mode, func(t *testing.T) { testInstalledHostTLS(t, bin, mode) })
+	for _, mode := range []string{"self-signed", "chain", "ca", "leaf-only", "missing-root", "legacy-pin"} {
+		t.Run(mode, func(t *testing.T) { testInstalledHostTLS(t, bin, "praimate-code", mode) })
 	}
 }
 
-func testInstalledHostTLS(t *testing.T, bin, mode string) {
+func TestOpenCodeInstalledHostTLS(t *testing.T) {
+	bin := os.Getenv("PRAIMATE_TEST_OPENCODE_BINARY")
+	if bin == "" {
+		t.Skip("set PRAIMATE_TEST_OPENCODE_BINARY to test unmodified OpenCode with HTTPS")
+	}
+	if !filepath.IsAbs(bin) {
+		t.Fatal("PRAIMATE_TEST_OPENCODE_BINARY must be absolute")
+	}
+	for _, mode := range []string{"self-signed", "chain", "ca", "leaf-only", "missing-root", "legacy-pin"} {
+		t.Run(mode, func(t *testing.T) { testInstalledHostTLS(t, bin, "opencode", mode) })
+	}
+}
+
+func testInstalledHostTLS(t *testing.T, bin, cli, mode string) {
 	root := t.TempDir()
 	isolateOpenCodeFixture(t, root)
 	c := nativeTestCore(t)
 	var calls atomic.Int32
 	s := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer fixture-key" || r.Header.Get(cliTLSHeader) != "" {
+			t.Error("provider credentials were changed or local transport authentication leaked upstream")
+			http.Error(w, "invalid fixture credentials", http.StatusUnauthorized)
+			return
+		}
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
 			return
@@ -66,6 +84,22 @@ func testInstalledHostTLS(t *testing.T, bin, mode string) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if mode == "missing-root" || mode == "legacy-pin" {
+			intermediateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intermediate := &x509.Certificate{Subject: pkix.Name{CommonName: "PrAImate fixture intermediate"}, SerialNumber: big.NewInt(3), NotBefore: root.NotBefore, NotAfter: root.NotAfter, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+			rootDER, err = x509.CreateCertificate(rand.Reader, intermediate, root, &intermediateKey.PublicKey, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, err = x509.ParseCertificate(rootDER)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key = intermediateKey
+		}
 		leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			t.Fatal(err)
@@ -76,6 +110,9 @@ func testInstalledHostTLS(t *testing.T, bin, mode string) {
 			t.Fatal(err)
 		}
 		s.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{leafDER, rootDER}, PrivateKey: leafKey}}}
+		if mode == "leaf-only" {
+			s.TLS.Certificates[0].Certificate = [][]byte{leafDER}
+		}
 	}
 	s.StartTLS()
 	defer s.Close()
@@ -86,6 +123,9 @@ func testInstalledHostTLS(t *testing.T, bin, mode string) {
 		t.Fatal(err)
 	}
 	material := cert.Trust
+	if mode == "legacy-pin" {
+		material = cert.PEM
+	}
 	if mode == "ca" {
 		trust, _, err := hosttls.ParseTrust(s.URL, material)
 		if err != nil {
@@ -104,16 +144,27 @@ func testInstalledHostTLS(t *testing.T, bin, mode string) {
 	if err := os.Mkdir(project, 0700); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := c.ResolveExecutionConfig(ctx, ExecutionRequest{Surface: SurfaceChat, CLI: "praimate-code", Cwd: project, Local: &ChatLocalEndpoint{Endpoint: s.URL, Model: "fixture", APIKey: "fixture-key"}})
+	cfg, err := c.ResolveExecutionConfig(ctx, ExecutionRequest{Surface: SurfaceChat, CLI: cli, Cwd: project, Local: &ChatLocalEndpoint{Endpoint: s.URL, Model: "fixture", APIKey: "fixture-key"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := c.PrepareExecution(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(map[string]any{"enabled_providers": []string{"praimate-local"}, "model": cfg.Model, "small_model": cfg.Model, "snapshot": false})
+	config := map[string]any{}
+	if raw := cfg.Env["OPENCODE_CONFIG_CONTENT"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config["enabled_providers"] = []string{"praimate-local"}
+	config["model"], config["small_model"], config["snapshot"] = cfg.Model, cfg.Model, false
+	raw, _ := json.Marshal(config)
 	cfg.Env["OPENCODE_CONFIG_CONTENT"] = string(raw)
 	adapter := NewPraimateCodeAdapter()
+	if cli == "opencode" {
+		adapter = NewOpenCodeAdapter()
+	}
 	adapter.bin = bin
 	reply, err := adapter.SingleShotStream(ctx, SingleShotOpts{Cwd: project, Message: "Reply with the fixture response", Model: cfg.Model, Env: cfg.Env}, nil)
 	if err != nil || reply == nil || reply.ExitCode != 0 || reply.SessionID == "" || !strings.Contains(reply.Text, "trusted-model-ok") || calls.Load() == 0 {

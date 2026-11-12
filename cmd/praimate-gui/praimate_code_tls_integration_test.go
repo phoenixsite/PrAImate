@@ -102,7 +102,15 @@ func TestPraimateCodeTerminalAcceptedTLS(t *testing.T) {
 	}
 	// Disable unrelated providers/title models without replacing the route
 	// produced by PrepareExecution in the project configuration.
-	raw, _ := json.Marshal(map[string]any{"enabled_providers": []string{"praimate-local"}, "model": cfg.Model, "small_model": cfg.Model, "snapshot": false})
+	config := map[string]any{}
+	if raw := cfg.Env["OPENCODE_CONFIG_CONTENT"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config["enabled_providers"] = []string{"praimate-local"}
+	config["model"], config["small_model"], config["snapshot"] = cfg.Model, cfg.Model, false
+	raw, _ := json.Marshal(config)
 	cfg.Env["OPENCODE_CONFIG_CONTENT"] = string(raw)
 	usage, err := app.core.BeginTerminalUsage(ctx, "praimate-code", cfg.Model, cfg.Env)
 	if err != nil {

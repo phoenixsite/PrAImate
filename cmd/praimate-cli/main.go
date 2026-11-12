@@ -834,7 +834,7 @@ func openCore(input *bufio.Reader, passwordStdin, interactive bool) (*core.Core,
 		_ = st.Close()
 		return nil, nil, err
 	}
-	return c, func() { _ = st.Close() }, nil
+	return c, func() { _ = c.Close(); _ = st.Close() }, nil
 }
 
 func command(ctx context.Context, c *core.Core, id, line string, output io.Writer) error {

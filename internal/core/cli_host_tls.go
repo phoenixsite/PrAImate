@@ -104,5 +104,5 @@ func (c *Core) prepareCLIHostTLS(ctx context.Context, cfg *EffectiveExecutionCon
 	} else if filepath.Dir(cfg.Env["NODE_EXTRA_CA_CERTS"]) == dir && strings.HasPrefix(filepath.Base(cfg.Env["NODE_EXTRA_CA_CERTS"]), "cli-ca-") {
 		cfg.Env["NODE_EXTRA_CA_CERTS"] = ""
 	}
-	return nil
+	return c.prepareCLIHostTLSRoutes(ctx, cfg, trusted)
 }

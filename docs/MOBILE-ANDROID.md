@@ -8,7 +8,7 @@ cancel server jobs. Native VS Code/VSCodium windows are not screen-streamed.
 
 ## Install the published APK
 
-Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.4/praimate-mobile-preview.apk)**
+Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.5/praimate-mobile-preview.apk)**
 from the combined release. You do not need the Android SDK or a source build to
 use it. Android may ask you to allow installation from your browser/file manager.
 The APK requires Android 8.0+ and a current Android System WebView; isolated
@@ -216,7 +216,9 @@ do not become incompatible Android updates. An HTTPS release redirect and
 checksum manifest provide a fallback when the API is unavailable.
 
 Android has an independent version in `mobile/android/VERSION`. The combined
-**v1.3.4** release includes Desktop/Server **1.3.4** and the Android **1.3.5** APK.
+**v1.3.5** release includes Desktop/Server **1.3.5** and the Android **1.3.5** APK.
+This host update leaves the Android version unchanged; an existing Android 1.3.5
+installation does not need to be replaced for the TLS transport fix.
 Android 1.3.3 and earlier compare only the host release tag: this combined release
 can be found normally, but an APK-only update inside an unchanged release may
 require a manual installation. Android 1.3.4 and later also read the Android

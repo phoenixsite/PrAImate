@@ -340,6 +340,9 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.terms != nil {
 		a.terms.closeAll()
 	}
+	if a.core != nil {
+		_ = a.core.Close()
+	}
 	if !resetting {
 		if cfg, err := launcher.LoadConfig(); err == nil {
 			runGUIAutoSync(context.Background(), cfg)

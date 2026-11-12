@@ -113,6 +113,9 @@ func (a *App) DeleteAllStoredData(projectsRoot, phrase string) error {
 	dbPath := ""
 	if a.st != nil {
 		dbPath = a.st.Path()
+		if a.core != nil {
+			_ = a.core.Close()
+		}
 		if err := a.st.Close(); err != nil {
 			return fmt.Errorf("close database: %w", err)
 		}

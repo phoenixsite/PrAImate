@@ -46,6 +46,7 @@ func nativeTestCore(t *testing.T) *Core {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = c.Close() })
 	c.nativeLimits.http = &http.Client{Transport: nativeTransport(func(*http.Request) (*http.Response, error) {
 		res := nativeHTTP(`{}`)
 		res.StatusCode = 404

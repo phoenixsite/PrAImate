@@ -111,26 +111,33 @@ bundled runtime/TLS patches. On amd64 without AVX2, the bundled baseline variant
 is used when available; otherwise resolution falls back to the managed copy.
 The updater also refreshes installed baseline sidecars.
 
-Accept the presented certificate and its issuing CA chain in Local LLM settings before connecting.
-Consent is stored in the encrypted database and supplied at launch to the
-bundled PrAImate Code through `PRAIMATE_HOST_TLS`. The build applies the
-transport patch from `scripts/praimate-code-tls.mjs` to a scratch copy of the
-vendored provider. It trusts only the accepted HTTPS origin and exact leaf
-certificate, retaining certificate expiry and hostname validation. If the server
-omits its root CA, expand **Private certificate authority** in Host Settings and
-paste the public root CA PEM (plus intermediates if needed), then confirm
-**Review & trust CA**. Never paste a private key. Explicit CA trust replaces the
-leaf pin for that host and allows certificates issued by the approved CA. Revoking
-consent clears the exception for subsequent launches. The patched transport
-uses direct endpoints and does not follow redirects for trusted origins.
+Accept the presented certificate and its issuing CA chain in Local LLM settings
+before connecting. Consent is stored in the encrypted database. PrAImate-launched
+PrAImate Code and OpenCode providers use an authenticated loopback transport for
+accepted HTTPS hosts. The core validates the remote HTTPS connection with the
+same verifier as model discovery and praimate-cli, preserving the accepted leaf
+pin, hostname and expiry checks. This also supports a private server that omits
+its root or intermediate CA, without depending on the CLI runtime's support for
+partial chains. Existing accepted leaf certificates do not require a CA import.
+
+To trust a private CA across leaf certificate renewals instead, expand **Private
+certificate authority** in Host Settings, paste its public root CA PEM (plus
+intermediates if needed), then confirm **Review & trust CA**. Never paste a private
+key. Explicit CA trust replaces the leaf pin for that host and allows certificates
+issued by the approved CA. The local transport re-checks consent on each request,
+blocks redirects and removes its authentication header before forwarding to the
+remote provider. Revoking consent also blocks new requests from existing CLI
+processes. Its transient routes do not change saved provider URLs, and its
+listener closes with the core.
 
 The same launch preparation serves Desktop chats, Studio, workflows and
 terminals. Both PrAImate Code and external OpenCode also receive a public PEM
-bundle through `NODE_EXTRA_CA_CERTS` at process startup. OpenCode's standard CA
-trust applies to that CLI process, rather than being restricted to one origin.
-The operating system trust store is unchanged. Restart existing CLI terminals
-after accepting, replacing or removing trust; subsequent launches receive the
-current consent. Local providers use separate `PRAIMATE_LLM_<provider hash>`
+bundle through `NODE_EXTRA_CA_CERTS` at process startup for compatibility.
+Extra CA trust for other CLI requests remains process-wide. PrAImate Code retains
+its scoped `PRAIMATE_HOST_TLS` build patch. The operating
+system trust store is unchanged. Restart terminals opened before this transport
+was configured; subsequent launches receive its routes. Local providers use
+separate `PRAIMATE_LLM_<provider hash>`
 environment references, so multiple providers in one process receive their own
 keys. Legacy `OPENAI_API_KEY` references remain supported for the selected route.
 
