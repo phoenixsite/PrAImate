@@ -257,6 +257,11 @@ class ChatView {
         reconnect:connect,
         rescan:async () => { currentStatus.availableCLIs = await call('clis.list'); currentStatus.agents = await call('agents.list'); this.notifyStatus(); await refreshModels(); },
         refreshModels:() => refreshModels(true),
+        sessionModels:async () => {
+          const cli = String(data.cli || currentStatus.activeCLI);
+          const models = await call(data.force ? 'models.refresh' : 'models.list',{cli});
+          view.webview.postMessage({type:'sessionModels',cli,models:models || []});
+        },
         installCLI:() => installCLI(data.cli),
         resetSession:async () => { this.newChat(); await context.workspaceState.update('session', {}); await context.workspaceState.update('launchId', launchInfo.launchId || 'environment'); connect(); },
         output:() => output.show(),

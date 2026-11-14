@@ -235,6 +235,29 @@ test('Workers command is registered and opens the Workers page', async () => {
     assert.ok(manifest.contributes.commands.some(command => command.command === 'praimate.focusWorkers'));
   } finally { h.close(); }
 });
+test('session model requests use the CLI sent by the webview', async () => {
+  const h=extensionHarness('linux',true,null,req=>{
+    if(req.method==='models.list') return ['model-'+req.params.cli];
+    if(req.method==='models.refresh') return ['refreshed-'+req.params.cli];
+  });
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    let receive;const messages=[];
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view);
+    receive({type:'sessionModels',cli:'codex',requestId:1});
+    await new Promise(resolve=>setImmediate(resolve));
+    let reply=messages.filter(m=>m.type==='sessionModels').at(-1);
+    assert.equal(reply.cli,'codex'); assert.deepEqual([...reply.models],['model-codex']);
+    receive({type:'sessionModels',cli:'claude',force:true,requestId:2});
+    await new Promise(resolve=>setImmediate(resolve));
+    reply=messages.filter(m=>m.type==='sessionModels').at(-1);
+    assert.equal(reply.cli,'claude'); assert.deepEqual([...reply.models],['refreshed-claude']);
+    assert.equal(h.requests.filter(r=>r.method==='models.list').at(-1).params.cli,'codex');
+    assert.equal(h.requests.filter(r=>r.method==='models.refresh').at(-1).params.cli,'claude');
+  } finally {h.close();}
+});
 test('a Workers request is not replayed when the sidebar webview is recreated', async () => {
   const h = extensionHarness('linux');
   try {
@@ -403,6 +426,23 @@ test('status updates preserve unsaved settings; errors preserve the draft and of
   h.send({type:'status',status:{...status,connected:false,error:'Reopen Desktop'}});
   assert.equal(h.elements.get('connection').hidden,false); assert.equal(h.elements.get('send-btn').disabled,true);
   h.elements.get('reconnect-btn').fire('click'); assert.equal(h.posted.at(-1).type,'reconnect');
+});
+test('model suggestions follow the newly selected CLI until the settings are saved', () => {
+  const h = webviewHarness();
+  h.send({type:'status',status:{connected:true,activeCLI:'claude',activeModel:'original',activeTools:'safe',models:['claude-model'],availableCLIs:[{id:'claude',label:'Claude',available:true},{id:'codex',label:'Codex',available:true}]}});
+  assert.deepEqual(h.elements.get('model-list').children.map(option => option.value),['claude-model']);
+  h.elements.get('cli-select').value = 'codex';
+  h.elements.get('cli-select').fire('change');
+  let request = h.posted.at(-1);
+  assert.equal(request.type,'sessionModels'); assert.equal(request.cli,'codex'); assert.equal(request.force,false);
+  h.send({type:'sessionModels',cli:'claude',models:['stale-model']});
+  assert.deepEqual(h.elements.get('model-list').children.map(option => option.value),['claude-model'],'responses for a previous CLI are ignored');
+  h.send({type:'sessionModels',cli:'codex',models:['codex-model']});
+  assert.deepEqual(h.elements.get('model-list').children.map(option => option.value),['codex-model']);
+  assert.deepEqual(h.eval('status.models'),['claude-model'],'saved session models stay tied to the stored CLI');
+  h.elements.get('refresh-models-btn').fire('click');
+  request = h.posted.at(-1);
+  assert.equal(request.type,'sessionModels'); assert.equal(request.cli,'codex'); assert.equal(request.force,true);
 });
 test('pending CLI detection preserves the persisted permission level on save', () => {
   const h = webviewHarness();

@@ -479,13 +479,15 @@ function cliChanged() {
   $('native-budget').hidden = cli !== 'praimate-cli';
   $('local-hint').textContent = localSupported(cli) ? 'Leave endpoint empty to use the CLI provider.' : 'Local routing is not supported by this CLI (or detection is pending).';
 }
+function renderModelList(models) { $('model-list').replaceChildren(...(models || []).map(m => {const o = document.createElement('option'); o.value = m; return o;})); }
+function requestSessionModels(force = false) { const cli = $('cli-select').value; if(cli) post('sessionModels',{cli,force}); }
 function fillSettings() {
   const clis = status.availableCLIs || [];
   options('cli-select',clis.length ? clis.map(c => [c.id,c.label+(c.available ? '' : ' — probe failed'),!c.available]) : [[status.activeCLI || 'praimate-code','Detecting CLIs…']],status.activeCLI);
   options('agent-select',[['','No persona'],...(status.agents || []).map(a => [a.id,a.name])],status.activeAgent || ''); options('tools-select',Object.entries(toolLabels),status.activeTools || 'safe');
   $('model-input').value = status.activeModel || ''; $('local-endpoint').value = status.localEndpoint || ''; $('local-model').value = status.localModel || '';
   $('local-context-tokens').value = status.localContextTokens || 0; $('local-output-tokens').value = status.localOutputTokens || 0; cliChanged();
-  $('model-list').replaceChildren(...(status.models || []).map(m => {const o = document.createElement('option'); o.value = m; return o;}));
+  renderModelList(status.models);
 }
 function updateStatus(next,context) {
   const previous = status; status = next;
@@ -545,7 +547,7 @@ function send() {
   const text = promptInput.value; notice(''); promptInput.value = ''; persist(); post('send',{text,useContext:$('use-context').checked},ok => {if(!ok && !promptInput.value) {promptInput.value = text; persist();}});
 }
 $('session-form').addEventListener('input',() => {dirty = true; $('saved-label').textContent = 'Unsaved changes';});
-$('cli-select').addEventListener('change',() => {$('model-input').value = ''; if(!localSupported($('cli-select').value)) {$('local-endpoint').value = ''; $('local-model').value = '';} cliChanged();});
+$('cli-select').addEventListener('change',() => {$('model-input').value = ''; if(!localSupported($('cli-select').value)) {$('local-endpoint').value = ''; $('local-model').value = '';} cliChanged(); requestSessionModels();});
 $('session-form').addEventListener('submit',event => {
   event.preventDefault(); const native=$('cli-select').value === 'praimate-cli'; post('updateConfig',{config:{cli:$('cli-select').value,agentId:$('agent-select').value,model:$('model-input').value.trim(),tools:$('tools-select').value,localEndpoint:$('local-endpoint').value.trim(),localModel:$('local-model').value.trim(),localContextTokens:native ? Number($('local-context-tokens').value) || 0 : 0,localOutputTokens:native ? Number($('local-output-tokens').value) || 0 : 0}},ok => {if(ok) {dirty = false; fillSettings(); $('saved-label').textContent = 'Saved';}});
 });
@@ -557,13 +559,14 @@ for(const [id,type] of Object.entries({'new-btn':'newChat','stop-btn':'stop','ex
 $('settings-btn').addEventListener('click',() => navigate('settings')); $('settings-skills').addEventListener('click',() => navigate('skills')); $('settings-mcp').addEventListener('click',() => navigate('mcp'));
 $('workspace-btn').addEventListener('click',() => post('chooseWorkspace')); $('privacy-btn').addEventListener('click',() => post('managePrivacy'));
 $('local-hosts-btn').addEventListener('click',() => post('manageLocalHosts'));
-$('refresh-models-btn').addEventListener('click',() => {const button=$('refresh-models-btn');button.disabled=true;button.textContent='Refreshing models…';post('refreshModels',{},() => {button.disabled=false;button.textContent='Refresh models';});});
+$('refresh-models-btn').addEventListener('click',() => {const button=$('refresh-models-btn');button.disabled=true;button.textContent='Refreshing models…';post('sessionModels',{cli:$('cli-select').value,force:true},() => {button.disabled=false;button.textContent='Refresh models';});});
 $('reload-btn').addEventListener('click',loadCollection); $('search').addEventListener('input',renderCollection);
 for(const [action,label] of Object.entries({explain:'Explain',fix:'Fix',refactor:'Refactor',test:'Tests',reviewFile:'Review file',reviewDiff:'Review changes'})) $('quick-actions').appendChild(button(label,() => post('quickAction',{action})));
 window.addEventListener('message',({data:m}) => {
   if(m.type === 'status') {const wasConnected=status.connected; if(status.chatId !== m.status.chatId) notice(''); updateStatus(m.status,m.context); if(!wasConnected && status.connected && page === 'overview') loadUsage();}
   else if(m.type === 'usageDashboard' && m.dashboard.month === $('usage-month').value) renderUsage(m.dashboard);
   else if(m.type === 'workerState') {if(m.config?.profiles?.length) workerConfig=m.config;workerRuns=m.runs || [];if(!workerSelected && workerRuns.length)workerSelected=workerRuns[0].id;renderWorkerProfiles();renderWorkerRuns();if(workerSelected)post('workerRefresh',{id:workerSelected});}
+  else if(m.type === 'sessionModels' && m.cli === $('cli-select').value) renderModelList(m.models);
   else if(m.type === 'workerModels') {workerModels[m.cli]=m.models || [];workerModelPending.delete(m.cli);renderWorkerProfiles();if(workerSnapshot?.dag && !document.activeElement?.closest('.worker-graph'))renderWorkerRuns();}
   else if(m.type === 'workerStarted') {workerSelected=m.id;$('worker-status').textContent='Running';$('worker-create').hidden=true;post('workerRefresh',{id:workerSelected});}
   else if(m.type === 'workerDeleted') {workerSelected='';workerSnapshot=null;post('workerRefresh',{id:''});}
