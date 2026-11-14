@@ -89,8 +89,8 @@ const descriptions = {
 };
 const saved = vscode.getState?.() || {}, pending = new Map();
 let page = pages[saved.page] ? saved.page : 'chat', status = {}, collections = {}, dirty = false, configSignature = '', requestID = 0;
-const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || '';
-function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value}); }
+const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || ''; $('use-context').checked = saved.useContext !== false;
+function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value,useContext:$('use-context').checked}); }
 function post(type,data = {},done) { const requestId = ++requestID; pending.set(requestId,{done,page,chatId:status.chatId,workerId:workerSelected}); vscode.postMessage({type,...data,requestId}); return requestId; }
 function button(label,fn,disabled = false) { const b = document.createElement('button'); b.textContent = label; b.disabled = disabled; b.addEventListener('click',fn); return b; }
 function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
@@ -549,6 +549,7 @@ $('cli-select').addEventListener('change',() => {$('model-input').value = ''; if
 $('session-form').addEventListener('submit',event => {
   event.preventDefault(); const native=$('cli-select').value === 'praimate-cli'; post('updateConfig',{config:{cli:$('cli-select').value,agentId:$('agent-select').value,model:$('model-input').value.trim(),tools:$('tools-select').value,localEndpoint:$('local-endpoint').value.trim(),localModel:$('local-model').value.trim(),localContextTokens:native ? Number($('local-context-tokens').value) || 0 : 0,localOutputTokens:native ? Number($('local-output-tokens').value) || 0 : 0}},ok => {if(ok) {dirty = false; fillSettings(); $('saved-label').textContent = 'Saved';}});
 });
+$('use-context').addEventListener('change',persist);
 $('send-btn').addEventListener('click',send); promptInput.addEventListener('input',persist);
 $('attach-btn').addEventListener('click',() => post('attach'));
 $('core-window-btn').addEventListener('click',() => post('toggleDesktopWindow'));

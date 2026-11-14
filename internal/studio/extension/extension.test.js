@@ -359,7 +359,7 @@ test('private launch descriptor overrides stale environment and preserves edits 
   } finally {h.close();}
 });
 
-function webviewHarness(withAssistant = false) {
+function webviewHarness(withAssistant = false, persistedState = {}) {
   const html = fs.readFileSync(path.join(__dirname,'resources/chat.html'),'utf8');
   const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1].replace('/*__ASSISTANT_SCRIPT__*/',withAssistant ? fs.readFileSync(path.join(__dirname,'resources/assistant.js'),'utf8') : '');
   const elements = new Map();
@@ -370,10 +370,11 @@ function webviewHarness(withAssistant = false) {
     fire(name,event={}){(this.listeners[name] || this['on'+name])?.(event);}});
   const document = {getElementById:id => {if(!elements.has(id)) elements.set(id,element());return elements.get(id);},createElement:element};
   const posted = [], listeners = {};
+  let state = persistedState;
   const sandbox = {document,window:{addEventListener:(name,fn)=>(listeners[name] ||= []).push(fn),dispatchEvent:e=>(listeners[e.type] || []).forEach(fn=>fn(e))},Option:function(text,value){this.text=text;this.value=value;},
-    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m)}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Event:class{constructor(type){this.type=type;}}};
+    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m),getState:()=>state,setState:next=>{state=next;}}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Event:class{constructor(type){this.type=type;}}};
   vm.createContext(sandbox);vm.runInContext(script,sandbox);
-  return {elements,posted,send:data=>(listeners.message || []).forEach(fn=>fn({data})),eval:code=>vm.runInContext(code,sandbox)};
+  return {elements,posted,send:data=>(listeners.message || []).forEach(fn=>fn({data})),eval:code=>vm.runInContext(code,sandbox),state:()=>state};
 }
 const descendants = node => [node,...(node.children || []).flatMap(descendants)];
 test('webview renders escaped prose and code using text nodes and clears old history', () => {
@@ -403,6 +404,15 @@ test('status updates preserve unsaved settings; errors preserve the draft and of
   h.send({type:'status',status:{...status,connected:false,error:'Reopen Desktop'}});
   assert.equal(h.elements.get('connection').hidden,false); assert.equal(h.elements.get('send-btn').disabled,true);
   h.elements.get('reconnect-btn').fire('click'); assert.equal(h.posted.at(-1).type,'reconnect');
+});
+test('active-file inclusion stays disabled across webview reloads', () => {
+  const h = webviewHarness();
+  assert.equal(h.elements.get('use-context').checked,true);
+  h.elements.get('use-context').checked = false;
+  h.elements.get('use-context').fire('change');
+  assert.equal(h.state().useContext,false);
+  const reloaded = webviewHarness(false,h.state());
+  assert.equal(reloaded.elements.get('use-context').checked,false);
 });
 test('pending CLI detection preserves the persisted permission level on save', () => {
   const h = webviewHarness();
