@@ -49,7 +49,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
   <div class="composer"><details><summary class="hint">Code actions</summary><div id="quick-actions" class="toolbar"></div></details>
     <div id="active-file" class="muted">No active file</div><label for="prompt-input" class="hint">Message</label>
     <textarea id="prompt-input" placeholder="Ask about your project or run ! command… (Enter to send, Shift+Enter for a new line)"></textarea>
-    <div id="attachment-list" class="hint"></div><div class="toolbar"><button id="attach-btn" title="Attach images or documents">Attach…</button><label class="hint grow"><input id="use-context" type="checkbox" checked> Include selection / active file</label><button id="stop-btn" class="danger" disabled>Stop</button><button id="send-btn" class="primary" disabled>Send</button></div>
+    <div id="attachment-list" class="hint"></div><div class="toolbar"><button id="attach-btn" title="Attach images or documents">Attach…</button><label class="hint grow"><input id="use-context" type="checkbox" checked> Include selection / active file</label><button id="activity-btn" aria-pressed="false" title="Hide tool activity in the conversation">Hide activity</button><button id="stop-btn" class="danger" disabled>Stop</button><button id="send-btn" class="primary" disabled>Send</button></div>
   </div>
 </section>
 <section id="workers-page" class="page" hidden>
@@ -90,7 +90,8 @@ const descriptions = {
 const saved = vscode.getState?.() || {}, pending = new Map();
 let page = pages[saved.page] ? saved.page : 'chat', status = {}, collections = {}, dirty = false, configSignature = '', requestID = 0;
 const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || '';
-function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value}); }
+let hideActivity = !!saved.hideActivity, lastMessages = [];
+function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value,hideActivity}); }
 function post(type,data = {},done) { const requestId = ++requestID; pending.set(requestId,{done,page,chatId:status.chatId,workerId:workerSelected}); vscode.postMessage({type,...data,requestId}); return requestId; }
 function button(label,fn,disabled = false) { const b = document.createElement('button'); b.textContent = label; b.disabled = disabled; b.addEventListener('click',fn); return b; }
 function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
@@ -524,9 +525,12 @@ function markdown(text) {
   }
   close(); return out.join('');
 }
+function syncActivityButton() {const b=$('activity-btn'); b.textContent=hideActivity ? 'Show activity' : 'Hide activity'; b.setAttribute('aria-pressed',String(hideActivity)); b.title=hideActivity ? 'Show tool activity in the conversation' : 'Hide tool activity in the conversation';}
 function renderMessages(messages) {
+  const wasWorking = lastMessages.some(m => m.inProgress); lastMessages = messages || [];
   const nearBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 80; messagesDiv.replaceChildren();
   if(!messages?.length) {const welcome = element('div','','welcome'); welcome.appendChild(element('h1','Your project, with PrAImate.')); welcome.appendChild(element('p','Ask a question, select code in the editor, or choose an agent and workflow. Session settings control the CLI, model and permissions.','hint')); messagesDiv.appendChild(welcome); return;}
+  let lastReply = null;
   for(const m of messages) {
     const el = element('article','','msg '+(m.role === 'user' ? 'user' : 'assistant')+(m.isError ? ' error' : '')); el.appendChild(element('div',m.role === 'user' ? 'You' : m.role === 'command' ? 'Terminal' : 'PrAImate'+(m.inProgress ? ' · working…' : ''),'role'));
     const content = m.content || '', regex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g; let index = 0, match;
@@ -536,10 +540,14 @@ function renderMessages(messages) {
       head.appendChild(element('span',match[1] || 'code')); head.appendChild(button('Apply',() => post('applyCode',{code}))); head.appendChild(button('Copy',() => navigator.clipboard.writeText(code).catch(err => notice(err.message))));
       box.appendChild(head); box.appendChild(element('pre',code)); el.appendChild(box); index = regex.lastIndex;
     }
-    prose(content.slice(index)); for(const attachment of m.attachments || []) el.appendChild(element('div','📎 '+attachment,'tool-pill')); for(const tool of m.tools || []) el.appendChild(element('div',(tool.status === 'completed' ? '✓ ' : tool.status === 'failed' ? '× ' : '… ')+tool.name+(tool.detail ? ': '+tool.detail : ''),'tool-pill')); messagesDiv.appendChild(el);
+    prose(content.slice(index)); for(const attachment of m.attachments || []) el.appendChild(element('div','📎 '+attachment,'tool-pill')); for(const tool of hideActivity ? [] : (m.tools || [])) el.appendChild(element('div',(tool.status === 'completed' ? '✓ ' : tool.status === 'failed' ? '× ' : '… ')+tool.name+(tool.detail ? ': '+tool.detail : ''),'tool-pill')); messagesDiv.appendChild(el); if(m.role !== 'user') lastReply = el;
   }
-  if(nearBottom) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  // When a turn finishes, show the start of the answer instead of its end.
+  if(wasWorking && !messages.some(m => m.inProgress) && lastReply) messagesDiv.scrollTop += lastReply.getBoundingClientRect().top - messagesDiv.getBoundingClientRect().top - 8;
+  else if(nearBottom) messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
+$('activity-btn').addEventListener('click',() => {hideActivity = !hideActivity; persist(); syncActivityButton(); const top = messagesDiv.scrollTop; renderMessages(lastMessages); messagesDiv.scrollTop = top;});
+syncActivityButton();
 function send() {
   if(!canChange() || !promptInput.value.trim()) return;
   const text = promptInput.value; notice(''); promptInput.value = ''; persist(); post('send',{text,useContext:$('use-context').checked},ok => {if(!ok && !promptInput.value) {promptInput.value = text; persist();}});
