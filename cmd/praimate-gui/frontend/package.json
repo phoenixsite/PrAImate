@@ -9,6 +9,7 @@
     "test:endpoint-security": "node --test src/lib/endpointSecurity.test.js",
     "test:mcp-form": "node --test src/lib/mcpForm.test.js",
     "test:markdown": "node --test src/lib/markdown.test.js",
+    "test:scroll-to-element": "node --test src/lib/scrollToElement.test.js",
     "test:local-routing": "node --test src/lib/localRouting.test.js",
     "test:settings-ui": "node --test src/pages/settingsUi.test.js",
     "test:terminal": "node --test src/lib/terminal.test.js",
