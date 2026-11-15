@@ -15,7 +15,7 @@ function column(status) {
 }
 
 function reviewLabel(review, runActive) {
-  if (review !== 'pending') return review === 'merged' ? 'Merged' : review === 'accepted' ? 'Approved' : 'Completed'
+  if (review !== 'pending') return review === 'merged' ? 'Merged' : review === 'accepted' ? 'Approved' : review === 'rejected' ? 'Rejected' : 'Completed'
   return runActive ? 'Completed · review when execution ends' : 'Ready to review'
 }
 

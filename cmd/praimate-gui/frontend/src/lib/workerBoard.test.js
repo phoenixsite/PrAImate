@@ -49,3 +49,16 @@ test('retrying tasks stay in Working and old planning attempts do not clutter th
  assert.equal(items[0].preview,'Fix navigation');
  assert.equal(items[0].autoRetriesUsed,1);
 });
+
+test('a rejected result is labelled Rejected and stays in Done next to accepted ones', () => {
+  const items = workerBoardItems({ status: 'review', dag: { tasks: [
+    { id: 'ok', status: 'completed', review: 'accepted' },
+    { id: 'no', status: 'completed', review: 'rejected' },
+    { id: 'in', status: 'completed', review: 'merged' },
+  ] } })
+  const byId = Object.fromEntries(items.map((card) => [card.taskID, card]))
+  assert.equal(workerStatusLabel(byId.no), 'Rejected')
+  assert.equal(workerStatusLabel(byId.ok), 'Approved')
+  assert.equal(workerStatusLabel(byId.in), 'Merged')
+  assert.deepEqual(['ok', 'no', 'in'].map((id) => byId[id].column), ['done', 'done', 'done'])
+})

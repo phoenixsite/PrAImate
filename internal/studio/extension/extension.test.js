@@ -722,3 +722,18 @@ test('worker recovery bridge preserves task identity and only executes after ret
     assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
   } finally {h.close();}
 });
+
+test('worker cards label rejected results as Rejected and keep them in Done',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const task=(id,review)=>({id,description:id,dependencies:[],worker:{profile:'middle'},status:'completed',review,result:{baseCommit:'base',resultCommit:'result',changedFiles:[],diff:''}});
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:{id:'run',task:'objective',status:'review',updatedAt:'one',profiles,events:[],dag:{tasks:[task('a','accepted'),task('b','rejected')],maxParallel:2,targetBranch:'main',baseCommit:'abc'}}});
+  const lanes=h.elements.get('worker-lanes');
+  const titles=descendants(lanes).filter(e=>e.tag==='h2').map(e=>e.textContent);
+  assert.deepEqual(titles,['Needs you · 0','Working · 0','Done · 2','Queued · 0']);
+  const text=descendants(lanes).map(e=>e.textContent);
+  assert.ok(text.some(t=>t.startsWith('Rejected')),'rejected card is labelled Rejected');
+  assert.ok(text.some(t=>t.startsWith('Approved')),'accepted card keeps Approved');
+});

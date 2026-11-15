@@ -241,7 +241,7 @@ function workerAttempts() {
   return [...groups.values()];
 }
 function workerRunActive(){return ['running','planning','merging'].includes(workerSnapshot?.status);}
-function workerReviewLabel(review){if(review!=='pending')return review==='accepted'?'Approved':review==='merged'?'Merged':'Completed';return workerRunActive()?'Completed · review when execution ends':'Ready to review';}
+function workerReviewLabel(review){if(review!=='pending')return review==='accepted'?'Approved':review==='merged'?'Merged':review==='rejected'?'Rejected':'Completed';return workerRunActive()?'Completed · review when execution ends':'Ready to review';}
 function workerStatusLabel(card){if(card.status==='completed')return workerReviewLabel(card.task?.review);return {running:'Working',planning:'Planning',pending:card.task?.dependencies?.length?'Waiting for dependencies':'Queued',waiting:'Delegating',retrying:'Retry scheduled',blocked:'Dependency failed',failed:'Failed',cancelled:'Stopped',interrupted:'Interrupted'}[card.status] || card.status;}
 function workerColumn(state){return ['failed','cancelled','blocked','interrupted'].includes(state)?'attention':['running','waiting','planning','retrying'].includes(state)?'working':['completed','merged'].includes(state)?'done':'queued';}
 function workerCards() {
