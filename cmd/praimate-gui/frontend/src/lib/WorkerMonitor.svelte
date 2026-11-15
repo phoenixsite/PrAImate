@@ -7,7 +7,7 @@
   import WorkerBoard from './WorkerBoard.svelte'
   import WorkerProfiles from './WorkerProfiles.svelte'
   import VoiceButton from './VoiceButton.svelte'
-  import { workerBoardItems, mergeWorkerEvents, workerRunSummary } from './workerBoard.js'
+  import { workerBoardItems, mergeWorkerEvents, workerRunSummary, keepsConsoleTab } from './workerBoard.js'
   import { activeWorkerRun, workerExecutions, workerEventLabel, workerLabel, workerUsage, shouldRevealWorkerPlan } from './workerActivity.js'
   export let snapshot
   export let clis = []
@@ -76,7 +76,11 @@
   function elapsed(start, end = now) { if (!start || new Date(start).getTime() <= 0) return '0m 0s'; const seconds = Math.max(0, Math.floor((Number(end) - new Date(start).getTime()) / 1000)); return Math.floor(seconds / 60) + 'm ' + seconds % 60 + 's' }
   async function scrollLatest() { await tick(); if (timeline) timeline.scrollTop = timeline.scrollHeight }
   function selectActive(list) { const worker = list.find(e => e.id === selected && e.status === 'running') || list.find(e => e.status === 'running') || list.find(e => e.status === 'waiting') || list.find(e => tasks.some(task => task.id === e.taskID && task.status === 'retrying')); if (worker) { selected = worker.id; selectedTask = worker.taskID || '' } }
-  function chooseCard(item) { selectedTask = item.taskID; selected = item.attemptID; focusActive = false; tab = 'activity' }
+  function chooseCard(item) {
+    const keepTab = keepsConsoleTab(currentTask, tasks.find(task => task.id === item.taskID))
+    selectedTask = item.taskID; selected = item.attemptID; focusActive = false
+    if (!keepTab) tab = 'activity'
+  }
   async function loadHistory(reset = false) {
     const key = snapshot.id + ':' + selected
     if (!selected || !snapshot.activityVersion) return

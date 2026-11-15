@@ -722,3 +722,25 @@ test('worker recovery bridge preserves task identity and only executes after ret
     assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
   } finally {h.close();}
 });
+
+test('worker console keeps the selected tab when switching between completed tasks',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const task=(id,status='completed')=>({id,description:id,dependencies:[],worker:{profile:'middle'},status,review:status==='completed'?'pending':undefined,result:status==='completed'?{baseCommit:'base',resultCommit:'result',changedFiles:[id+'.txt'],diff:'diff of '+id}:undefined});
+  const lanes=()=>h.elements.get('worker-lanes');
+  const card=id=>descendants(lanes()).find(e=>String(e.className).includes('worker-task-card') && descendants(e).some(c=>c.tag==='strong' && c.textContent===id));
+  const tab=label=>descendants(lanes()).find(e=>e.tag==='button' && e.textContent===label);
+  const pressed=label=>String(tab(label)['aria-pressed']);
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:{id:'run',task:'objective',status:'review',updatedAt:'one',profiles,events:[],dag:{tasks:[task('a'),task('b'),task('c','pending')],maxParallel:2,targetBranch:'main',baseCommit:'abc'}}});
+  card('a').fire('click');
+  tab('Changes').fire('click');
+  assert.equal(pressed('Changes'),'true');
+  card('b').fire('click');
+  assert.equal(pressed('Changes'),'true','Changes stays selected for another completed task');
+  assert.ok(descendants(lanes()).some(e=>e.textContent==='diff of b'),'the console now shows the other task');
+  tab('Result').fire('click');
+  card('a').fire('click');
+  assert.equal(pressed('Result'),'true','Result stays selected when going back');
+});
