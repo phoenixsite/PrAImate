@@ -230,6 +230,7 @@ export const api = {
   createSkillInStudio: (name) => call('CreateSkillInStudio', name),
   activeChatIDs: () => call('ActiveChatIDs'),
   openEditorFolder: () => call('OpenEditorFolder'),
+  openExternalURL: url => call('OpenExternalURL', url),
   openAgentKnowledgeFolder: (id) => call('OpenAgentKnowledgeFolder', id),
   openEditorWindow: (folder, agentID, cli, model, chatID, localEndpoint, localApiKey, localModel) =>
     call('OpenEditorWindow', folder, agentID, cli, model || '', chatID, localEndpoint || '', localApiKey || '', localModel || ''),
