@@ -722,3 +722,39 @@ test('worker recovery bridge preserves task identity and only executes after ret
     assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
   } finally {h.close();}
 });
+
+test('worker task compares base to result in the editor from Core data',async()=>{
+  const task={id:'t1',worktree:{path:'/tmp',branch:'praimate/t1'},result:{baseCommit:'aaaaaaaaaaaa',resultCommit:'bbbbbbbbbbbb',changedFiles:['src/a.go','b.txt']}};
+  const h=extensionHarness('linux',true,null,req=>{
+    if(req.method==='workers.get')return {id:'run',dag:{tasks:[task]}};
+  });
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    const opened=[],executed=[];
+    let gitAvailable=true;
+    h.vscode.Uri={file:p=>({fsPath:p}),joinPath:(_, ...parts)=>parts.join('/')};
+    h.vscode.extensions={getExtension:id=>id==='vscode.git' && gitAvailable ? {activate:async()=>({getAPI:()=>({openRepository:async u=>{opened.push(u.fsPath);return {};},toGitUri:(u,ref)=>({path:u.fsPath,ref})})})} : undefined};
+    h.vscode.commands.executeCommand=(...args)=>{executed.push(args);};
+    let receive;const messages=[];
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view);
+    const settle=()=>new Promise(resolve=>setImmediate(resolve));
+
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:2});await settle();
+    const [command,title,resources]=executed.at(-1);
+    assert.deepEqual(opened,['/tmp']);
+    assert.equal(command,'vscode.changes');
+    assert.match(title,/t1: aaaaaaaa → bbbbbbbb/);
+    assert.equal(resources.length,2);
+    assert.deepEqual([...resources[0]].map(r=>r.ref),[undefined,'aaaaaaaaaaaa','bbbbbbbbbbbb']);
+    assert.equal(resources[1][0].fsPath,'/tmp/b.txt');
+
+    // The webview cannot choose the path: an unknown task is rejected.
+    receive({type:'workerCompareChanges',id:'run',taskID:'../../etc',requestId:3});await settle();
+    assert.ok(messages.some(m=>m.type==='actionResult' && m.id===3 && !m.ok && /not found/.test(m.error)));
+
+    gitAvailable=false;
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:4});await settle();
+    assert.ok(messages.some(m=>m.type==='actionResult' && m.id===4 && !m.ok && /not available/.test(m.error) && /\/tmp/.test(m.error)));
+  } finally {h.close();}
+});

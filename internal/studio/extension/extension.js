@@ -13,6 +13,31 @@ let reconnectTimer, stopped = false, generation = 0, launchInfo = {}, connection
 let currentStatus = { connected: false, activeCLI: 'praimate-code', activeModel: '', activeAgent: '', activeTools: 'safe', activeWorkspace: '', availableCLIs: [], agents: [], models: [], desktopWindow:{available:false,hidden:false} };
 const workspace = () => currentStatus.activeWorkspace || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 const call = (method, params) => rpc ? rpc.request(method, params) : Promise.reject(new Error('PrAImate Core is offline'));
+
+// Opens a multi-file diff of a worker task's baseCommit..resultCommit. Paths come
+// from Core's snapshot, never from the webview message.
+async function compareTaskChanges(runId, taskID) {
+  const snapshot = await call('workers.get',{id:runId});
+  const task = snapshot?.dag?.tasks?.find(t => t.id === taskID);
+  if (!task) throw new Error('Task not found');
+  const tree = task.worktree?.path;
+  const result = task.result;
+  if (!(result?.baseCommit && result?.resultCommit)) throw new Error('This task has no saved result to compare');
+  const git = vscode.extensions.getExtension('vscode.git');
+  if (!git) throw new Error('Source Control (the built-in Git extension) is not available in this editor.'+(tree ? ' Worktree: '+tree : ''));
+  const api = (await git.activate()).getAPI(1);
+  // A merged/cleaned task's commits remain in the project's object store.
+  const root = tree && fs.existsSync(tree) ? tree : workspace();
+  const repo = await api.openRepository(vscode.Uri.file(root));
+  if (!repo) throw new Error('Git could not open '+root+' as a repository');
+  const files = (result.changedFiles || []).slice(0,200);
+  if (!files.length) throw new Error('This task changed no files');
+  const resources = files.map(file => {
+    const uri = vscode.Uri.file(path.isAbsolute(file) ? file : path.join(root,file));
+    return [uri,api.toGitUri(uri,result.baseCommit),api.toGitUri(uri,result.resultCommit)];
+  });
+  await vscode.commands.executeCommand('vscode.changes','Worker '+taskID+': '+result.baseCommit.slice(0,8)+' → '+result.resultCommit.slice(0,8),resources);
+}
 const report = err => vscode.window.showErrorMessage('PrAImate: ' + err.message);
 
 function disposeConnection() {
@@ -322,6 +347,7 @@ class ChatView {
           await call('workers.graph.resolve',{id:data.id,taskID:data.taskID});
           await call('workers.graph.execute',{id:data.id});
         },
+        workerCompareChanges:async () => compareTaskChanges(data.id,data.taskID),
         workerTaskPreview:async () => {
           const preview = await call('workers.task.preview',{id:data.id,taskID:data.taskID});
           view.webview.postMessage({type:'workerTaskPreview',runId:data.id,taskID:data.taskID,preview});

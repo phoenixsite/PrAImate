@@ -18,7 +18,7 @@ Select a card to focus its console. The attempt selector preserves the actual
 CLI/model of each historical attempt, even after Run settings change. **Activity**
 shows live output, reported reasoning, tool results, delegations and errors;
 **Result** shows its reported result; **Changes** previews the current task worktree;
-**Assignment** shows its task, workspace, parent and CLI session. Follow active
+**Assignment** shows its task, workspace, parent and CLI session. In the Studio / VS Code extension, **Compare in editor** opens a multi-file diff of the task's base and result commits (available after merge too, using the project's repository). Follow active
 focuses a working assignment; selecting a card allows inspecting another task.
 
 The board and separate execution window/panel share the same Core state and
