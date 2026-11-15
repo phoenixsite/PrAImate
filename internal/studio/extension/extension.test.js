@@ -722,3 +722,40 @@ test('worker recovery bridge preserves task identity and only executes after ret
     assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
   } finally {h.close();}
 });
+
+test('worker review bar offers merge outside the plan section and counts accepted results',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const task=(id,review)=>({id,description:id,dependencies:[],worker:{profile:'middle'},status:'completed',review,result:{baseCommit:'base',resultCommit:'result',changedFiles:[],diff:''}});
+  const snap=(status,tasks)=>({id:'run',task:'objective',status,updatedAt:status+tasks.map(t=>t.review).join(),profiles,events:[],dag:{tasks,maxParallel:2,targetBranch:'main',baseCommit:'abc'}});
+  const lanes=()=>h.elements.get('worker-lanes');
+  const find=(label)=>descendants(lanes()).filter(e=>e.tag==='button' && e.textContent===label);
+  const text=()=>descendants(lanes()).map(e=>e.textContent).join('\n');
+
+  // Nothing to merge yet: results await review and the button is disabled.
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:snap('review',[task('a','pending'),task('b','pending')])});
+  assert.match(text(),/2 results awaiting review/);
+  assert.equal(find('Merge accepted changes')[0].disabled,true);
+
+  // One accepted, one rejected: merge is enabled and posts the merge request.
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:snap('review',[task('a','accepted'),task('b','rejected')])});
+  assert.match(text(),/All results reviewed/);
+  assert.match(text(),/1 accepted · 1 rejected/);
+  const merge=find('Merge 1 accepted change')[0];
+  assert.equal(merge.disabled,false);
+  assert.equal(merge.className,'primary');
+  merge.fire('click');
+  assert.equal(h.posted.at(-1).type,'workerGraphMerge');
+  assert.equal(h.posted.at(-1).id,'run');
+
+  // The plan section no longer carries its own merge button: only the review bar has one.
+  const everything=[...descendants(h.elements.get('worker-result')),...descendants(lanes())];
+  assert.ok(everything.some(e=>e.tag==='button' && e.textContent==='Clean reviewed worktrees'),'plan section is rendered');
+  assert.equal(everything.filter(e=>e.tag==='button' && /^Merge/.test(e.textContent)).length,1);
+
+  // While the run is still executing the bar is hidden.
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'running'}],snapshot:snap('running',[task('a','accepted')])});
+  assert.ok(!/accepted change/.test(text()));
+});

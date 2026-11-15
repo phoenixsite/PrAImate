@@ -45,3 +45,26 @@ test('a rejected plan save does not start workers',async t=>{
   await graph.execute()
   assert.deepEqual(calls.map(call=>call[0]),['save'])
 })
+
+test('merge lives in the monitor review bar, not inside the plan section, and review buttons are distinct', async () => {
+  const monitor = await readFile(new URL('./WorkerMonitor.svelte',import.meta.url),'utf8')
+  const styles = await readFile(new URL('../styles.css',import.meta.url),'utf8')
+  assert.doesNotMatch(source, /Merge accepted changes|mergeWorkerDAG/)
+  assert.match(source, /class="btn primary"[^>]*>[\s\S]{0,260}?Accept changes<\/button>/)
+  assert.match(source, /class="btn reject"[\s\S]{0,260}?Reject changes<\/button>/)
+  assert.match(monitor, /class="review-bar"/)
+  assert.match(monitor, /<button class="btn primary" disabled=\{busy \|\| !acceptedTasks\.length\}[^>]*on:click=\{mergeAccepted\}>\{acceptedTasks\.length \? `Merge \$\{acceptedTasks\.length\} accepted change/)
+  assert.match(monitor, /mergeWorkerDAG\(snapshot\.id\)/)
+  assert.match(monitor, /showConfirm\(\{ title: 'Merge accepted worker changes\?'/)
+  assert.match(monitor, /class="btn reject"[\s\S]{0,260}?Reject changes<\/button>/)
+  assert.match(styles, /button\.btn\.reject\s*\{[^}]*var\(--err\)/)
+  // The monitor's own scoped button:hover sets an accent border; both components must override it so Reject stays red everywhere.
+  for (const component of [source, monitor]) {
+    assert.match(component, /\.reject\s*\{[^}]*border-color:\s*var\(--err\)/)
+    assert.match(component, /\.reject:hover:not\(:disabled\)\s*\{[^}]*border-color:\s*var\(--err\)/)
+  }
+  // Hover must never put theme/accent text colours on the red: keep the red text and only tint the background.
+  const hover = styles.match(/button\.btn\.reject:hover:not\(:disabled\)\s*\{([^}]*)\}/)[1]
+  assert.match(hover, /color:\s*var\(--err\)/)
+  assert.doesNotMatch(hover, /accent-fg|background:\s*var\(--err\)/)
+})

@@ -287,6 +287,10 @@ button.btn.primary {
 }
 button.btn.primary:hover { filter: brightness(0.92); background: var(--accent); }
 button.btn.danger:hover { border-color: var(--err); color: var(--err); background: transparent; }
+/* Review decisions: Accept uses btn primary; Reject is a clearly different red outline. */
+button.btn.reject { border-color: var(--err); color: var(--err); font-weight: 600; }
+/* Hover only tints the background: the text keeps the red it already has, so it stays readable in every theme/accent. */
+button.btn.reject:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 16%, transparent); border-color: var(--err); color: var(--err); }
 button.btn:disabled { opacity: 0.4; cursor: default; }
 button.btn.primary:disabled:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); filter: none; }
 
