@@ -366,7 +366,7 @@ function webviewHarness(withAssistant = false) {
   const element = tag => ({tag,dataset:{},listeners:{},value:'',checked:true,disabled:false,children:[],innerHTML:'',textContent:'',className:'',
     style:{},append(...v){this.children.push(...v);},prepend(v){this.children.unshift(v);},classList:{add(){},remove(){}},get options(){return this.children;},
     focus(){},dispatchEvent(e){this.fire(e.type,e);},scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
-    addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChildren(...v){this.children=v;this.innerHTML='';},
+    addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChild(next,previous){const i=this.children.indexOf(previous);if(i<0)this.children.push(next);else this.children[i]=next;},scrollLeft:0,replaceChildren(...v){this.children=v;this.innerHTML='';},
     fire(name,event={}){(this.listeners[name] || this['on'+name])?.(event);}});
   const document = {getElementById:id => {if(!elements.has(id)) elements.set(id,element());return elements.get(id);},createElement:element};
   const posted = [], listeners = {};
@@ -721,4 +721,41 @@ test('worker recovery bridge preserves task identity and only executes after ret
     assert.ok(messages.some(m=>m.type==='workerActivity' && m.runId==='run' && m.workerID==='attempt' && m.activity.before===10));
     assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
   } finally {h.close();}
+});
+
+test('streamed worker output keeps the board element and its horizontal scroll; the console still updates',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const event=(sequence,text)=>({workerID:'att',sequence,kind:'stream',text,timestamp:'2026-01-01T00:00:0'+sequence+'Z',tier:'middle'});
+  const snapshot=(events,extra={})=>({id:'run',task:'objective',status:'running',updatedAt:'u'+events.length+JSON.stringify(extra),profiles,events,
+    attempts:[{id:'att',taskID:'a',tier:'middle',status:'running',cli:'codex',model:'m'}],
+    dag:{tasks:[{id:'a',description:'A',dependencies:[],worker:{profile:'middle'},status:'running',...extra}],maxParallel:2,targetBranch:'main',baseCommit:'abc'}});
+  const send=snap=>h.send({type:'workerSnapshot',runs:[{id:'run',status:'running'}],selectedId:'run',snapshot:snap});
+  const lanes=()=>h.elements.get('worker-lanes');
+  const boardEl=()=>descendants(lanes()).find(e=>e.className==='worker-board');
+  const consoleEl=()=>descendants(lanes()).find(e=>e.className==='worker-console');
+  const text=()=>descendants(lanes()).map(e=>e.textContent).join('\n');
+
+  send(snapshot([event(1,'first chunk')]));
+  const board=boardEl(),firstConsole=consoleEl();
+  board.scrollLeft=240;
+  assert.match(text(),/first chunk/);
+
+  // Only the output changed: the same board element stays (so scroll and hover survive), the console is replaced.
+  send(snapshot([event(1,'first chunk'),event(2,'second chunk')]));
+  assert.equal(boardEl(),board,'board element reused');
+  assert.equal(board.scrollLeft,240);
+  assert.notEqual(consoleEl(),firstConsole,'console rebuilt with the new output');
+  assert.match(text(),/second chunk/);
+
+  // Something the board shows changed (a retry counter): it is rebuilt, but the scroll position is carried over.
+  send(snapshot([event(1,'first chunk'),event(2,'second chunk')],{status:'retrying',autoRetriesUsed:1}));
+  assert.notEqual(boardEl(),board,'board rebuilt when its content changed');
+  assert.equal(boardEl().scrollLeft,240,'scroll carried over to the rebuilt board');
+
+  // Another run starts from the beginning.
+  h.send({type:'workerSnapshot',runs:[{id:'other',status:'running'}],selectedId:'other',snapshot:{...snapshot([event(1,'x')]),id:'other',updatedAt:'o1'}});
+  assert.equal(boardEl().scrollLeft,0);
 });

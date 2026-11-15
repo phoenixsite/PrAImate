@@ -229,6 +229,7 @@ function renderWorkerProfiles() {
     host.appendChild(box);
   }
 }
+let workerBoardView = null;
 let workerFocus = '', workerAttempt = '', workerConsoleTab = 'activity', workerHistoryKey = '', workerHistory = [], workerHistoryBefore = 0, workerHistoryMore = false, workerHistoryBusy = false, workerPreviewKey = '', workerPreview = null, workerPreviewBusy = false, workerFollow = true, workerSearch = '';
 function workerAttempts() {
   if(workerSnapshot?.attempts?.length)return workerSnapshot.attempts;
@@ -279,24 +280,37 @@ function loadWorkerPreview(card,refresh=false) {
   workerPreviewKey=key;workerPreviewBusy=true;workerPreview=null;
   post('workerTaskPreview',{id:workerSelected,taskID:card.task.id},ok=>{if(workerPreviewKey===key){workerPreviewBusy=false;if(!ok)workerPreviewKey='';}});
 }
+function workerBoardSignature(cards) {
+  return JSON.stringify([workerFocus,workerSearch,workerFollow,workerRunActive(),workerSnapshot.maxRetries,workerSnapshot.autoRetriesUsed,
+    cards.map(c=>[c.id,c.title,c.status,c.column,c.route,String(c.preview || '').slice(0,280),String(c.error || '').slice(0,160),c.count,c.task?.review,c.task?.autoRetriesUsed])]);
+}
 function renderWorkerBoard() {
   const searchFocused=document.activeElement?.id==='worker-board-search',searchPosition=document.activeElement?.selectionStart;
-  const root=$('worker-lanes'),oldScroll=document.getElementById('worker-event-log')?.scrollTop || 0;root.replaceChildren();
-  if(!workerSnapshot)return;
+  const root=$('worker-lanes'),oldScroll=document.getElementById('worker-event-log')?.scrollTop || 0;
+  if(!workerSnapshot){root.replaceChildren();workerBoardView=null;return;}
   let cards=workerCards();
   if(workerFollow){const active=cards.find(c=>['running','waiting','planning','retrying'].includes(c.status));if(active){workerFocus=active.id;workerAttempt=active.attempt?.id || '';}}
   let card=cards.find(c=>c.id===workerFocus) || cards.find(c=>workerColumn(c.status)==='attention') || cards[0];
   if(card && card.id!==workerFocus){workerFocus=card.id;workerAttempt=card.attempt?.id || '';}
-  const toolbar=element('div','','toolbar'),search=document.createElement('input');search.id='worker-board-search';search.placeholder='Filter tasks, CLI or model';search.setAttribute('aria-label','Filter worker tasks');search.value=workerSearch;search.addEventListener('input',()=>{workerSearch=search.value;renderWorkerBoard();});toolbar.appendChild(search);
+  // The poll repaints on every streamed event. Keep the toolbar and board elements (and so their scroll
+  // position, focus and hover) when nothing they show has changed, and only swap the console.
+  const signature=workerBoardSignature(cards),reuse=!!(workerBoardView && workerBoardView.root===root && workerBoardView.run===workerSelected && workerBoardView.signature===signature);
+  let toolbar,search,board;
+  if(reuse){({toolbar,search,board}=workerBoardView);}
+  else {
+  const boardScroll=workerBoardView && workerBoardView.root===root && workerBoardView.run===workerSelected?workerBoardView.board.scrollLeft:0;root.replaceChildren();
+  toolbar=element('div','','toolbar');search=document.createElement('input');search.id='worker-board-search';search.placeholder='Filter tasks, CLI or model';search.setAttribute('aria-label','Filter worker tasks');search.value=workerSearch;search.addEventListener('input',()=>{workerSearch=search.value;renderWorkerBoard();});toolbar.appendChild(search);
   toolbar.appendChild(workerInput('Follow active worker',workerFollow,v=>{workerFollow=v;renderWorkerBoard();},'checkbox').wrap);root.appendChild(toolbar);
-  const board=element('div','','worker-board');
+  board=element('div','','worker-board');
   for(const [column,title] of [['attention','Needs you'],['working','Working'],['done','Done'],['queued','Queued']]) {
     const rows=cards.filter(c=>(c.column || workerColumn(c.status))===column && [c.title,c.route,c.preview].join(' ').toLowerCase().includes(workerSearch.toLowerCase())),lane=element('section','','worker-column '+column);
     lane.appendChild(element('h2',title+' · '+rows.length));
     for(const c of rows){const item=button('',()=>selectWorkerCard(c));item.className='worker-task-card'+(c.id===workerFocus?' selected':'');item.setAttribute('aria-pressed',c.id===workerFocus);item.appendChild(element('strong',c.title));item.appendChild(element('small',c.route));item.appendChild(element('p',String(c.preview || '').slice(0,280)));if(c.status==='retrying')item.appendChild(element('small','Automatic retry '+(c.task?.autoRetriesUsed || workerSnapshot.autoRetriesUsed)+'/'+workerSnapshot.maxRetries));else if(c.error)item.appendChild(element('small',String(c.error).slice(0,160),'error'));item.appendChild(element('small',workerStatusLabel(c)+' · '+c.count+' attempt(s)'));lane.appendChild(item);}
     if(!rows.length)lane.appendChild(element('p','No tasks','hint'));board.appendChild(lane);
   }
-  root.appendChild(board);if(!card)return;
+  root.appendChild(board);board.scrollLeft=boardScroll;workerBoardView={root,run:workerSelected,signature,toolbar,search,board,console:null};
+  }
+  if(!card)return;
   const attempts=workerAttempts().filter(a=>card.task?a.taskID===card.task.id:!a.taskID && a.tier===card.tier),current=attempts.find(a=>a.id===workerAttempt) || attempts.at(-1);
   workerAttempt=current?.id || '';
   const consolePanel=element('section','','worker-console'),head=element('div','','toolbar');head.appendChild(element('strong',card.title+' · '+(current?((current.cli || 'Local')+' / '+(current.model || 'Backend default')+' · '+current.status):card.route)));
@@ -319,8 +333,9 @@ function renderWorkerBoard() {
     else consolePanel.appendChild(element('p','This assignment has no task worktree.','hint'));
     if(card.task?.result && card.task.review!=='merged'){const accept=button('Accept changes',()=>graphAction('workerGraphReview',{taskID:card.task.id,decision:'accepted'}),active),reject=button('Reject changes',()=>graphAction('workerGraphReview',{taskID:card.task.id,decision:'rejected'}),active);if(active){accept.title='Available when the task graph finishes executing';reject.title='Available when the task graph finishes executing';}consolePanel.appendChild(accept);consolePanel.appendChild(reject);}
   } else {consolePanel.appendChild(element('pre',current?.assignment || card.task?.description || ''));consolePanel.appendChild(element('p','Workspace: '+(current?.workspace || card.task?.worktree?.path || workerSnapshot.workspace || '—'),'hint'));consolePanel.appendChild(element('p','CLI session: '+(current?.sessionID || 'Not reported'),'hint'));if(current?.parentID)consolePanel.appendChild(element('p','Delegated by: '+current.parentID,'hint'));if(card.task?.dependencies?.length)consolePanel.appendChild(element('p','Depends on: '+card.task.dependencies.join(', '),'hint'));}
-  root.appendChild(consolePanel);
-  if(searchFocused){search.focus();search.setSelectionRange?.(searchPosition,searchPosition);}
+  if(reuse && workerBoardView.console)root.replaceChild(consolePanel,workerBoardView.console);else root.appendChild(consolePanel);
+  workerBoardView.console=consolePanel;
+  if(searchFocused && !reuse){search.focus();search.setSelectionRange?.(searchPosition,searchPosition);}
 }
 let graphDraftID = '', graphDraft = [], graphParallel = 2, workerSnapshotStamp = '';
 const graphDetailsOpen = new Set();
@@ -406,7 +421,7 @@ function renderWorkerRuns() {
   const tabs=$('worker-tabs');tabs.replaceChildren();
   if(!workerRuns.length) tabs.appendChild(element('p','No worker chats yet.','empty'));
   for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {notice('');workerSelected=run.id;workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
-  const result=$('worker-result');result.replaceChildren();const lanes=$('worker-lanes');lanes.replaceChildren();
+  const result=$('worker-result');result.replaceChildren();const lanes=$('worker-lanes');if(!workerSnapshot){lanes.replaceChildren();workerBoardView=null;}
   $('worker-continue').hidden=!workerSnapshot || ['running','planning','merging'].includes(workerSnapshot.status) || !!workerSnapshot.dag;
   $('worker-followup-panel').hidden=$('worker-continue').hidden;
   $('worker-status').textContent=workerSnapshot?.status || '';
