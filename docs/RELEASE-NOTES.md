@@ -1,42 +1,45 @@
-# PrAImate 1.3.5
+# PrAImate 1.3.6
 
-**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.5/docs/INSTALLATION.md)**.
+**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.6/docs/INSTALLATION.md)**.
 
-Desktop and Server are **1.3.5**. This release fixes certificate trust for local
-LLM providers in PrAImate Code and external OpenCode. The Android preview remains
-**1.3.5**; existing Android 1.3.5 installations do not need an update for this
-server-side fix.
+Desktop, Server and the Android preview are **1.3.6**. This release integrates the
+reviewed Studio and Workers contributions from PRs #33, #35, #37, #38, #40, #42,
+#43, #45, #47 and #49, with additional regression fixes for both editions.
+Thanks to **phoenixsite** for these contributions.
 
-- Route accepted HTTPS providers through an authenticated, loopback-only
-  transport in the core. Model discovery, praimate-cli, PrAImate Code and OpenCode
-  use the same TLS verifier instead of depending on the CLI runtime's handling of
-  partial certificate chains.
-- Reuse existing accepted leaf certificates, including legacy trust records and
-  private endpoints that omit issuing certificates. A manual root CA import is
-  optional. Hostname, expiry and exact accepted-leaf checks remain enabled;
-  explicitly imported CAs retain their normal chain-validation behavior.
-- Preserve model IDs, provider paths, credentials, custom headers, plugins,
-  streaming and resumed sessions. Ephemeral routing does not rewrite saved
-  project provider URLs. The local authentication header never reaches the LLM
-  server, and redirects are blocked.
-- Bypass HTTP proxies for the authenticated loopback hop, including in Bun.
-  Preserve existing proxy exclusions and the remote endpoint's proxy settings.
-- Check current trust on every forwarded request. Revoking trust blocks further
-  requests from already running clients. Close the listener on app exit or data
-  reset.
-- Apply the shared changes to both Desktop (`main`) and Server (`server`). Keep
-  edition-safe updates and the Windows Desktop compatibility archives from 1.3.4.
+- Show Studio model suggestions for the CLI selected in session settings before
+  Save. Ignore stale responses, including out-of-order refreshes of the same CLI,
+  and preserve unsaved settings during background updates.
+- Preserve the Include selection / active file preference across webview reloads.
+  Add a persistent Hide/Show activity control. When a followed assistant turn
+  finishes, show the start of its reply without interrupting older-message reading.
+- Open saved Worker results with **Compare in editor** in Studio. Use the run's
+  repository when its worktree has been cleaned, validate paths and commit refs,
+  and include all changed files in the editor comparison.
+- Make Worker review actions visible above the board, with awaiting, accepted and
+  rejected counts, a clear Merge action, and distinct Accept/Reject buttons. Keep
+  the summary visible when every result is rejected. Prevent a delayed merge
+  confirmation from applying to a different run.
+- Reveal and focus the plan when Review plan or Route options is chosen. Respect
+  reduced-motion settings and keep automatic plan opening from forcing a scroll.
+- Keep Changes/Result selected when switching between completed tasks. Show
+  Rejected explicitly on rejected task cards. Preserve Studio board scroll,
+  search focus and caret while worker output streams.
+- Open Desktop web and mail links through the local system browser with URL
+  validation and error feedback. Managed Server windows use their local opener;
+  remote browsers and Android keep their own link handling.
+- Retain the 1.3.5 local LLM certificate transport fixes, edition-safe updates and
+  Windows Desktop compatibility archives.
 
-**After updating, restart PrAImate and reopen existing CLI terminals** so they
-receive the new transport configuration. Existing certificate consent is reused.
-To trust a private CA across leaf renewals, use **Private certificate authority**
-in Local LLM settings instead of accepting individual leaf certificates.
+The bundled Studio extension is **0.7.4**. Restart PrAImate and reopen Studio after
+updating to load the new extension. The Android **1.3.6** APK includes the shared
+Worker interface changes and is available through the client's update checker.
 
-Validation includes six real HTTPS scenarios with PrAImate Code and official
-OpenCode, first and resumed completions, Bun 1.3.14, authenticated streaming,
-revocation, redirects, provider configuration preservation, race checks and real
-Code PTYs. Core, host TLS, local-provider and CLI tests cover both editions;
-Windows core tests cross-compile. Target-device validation is still required.
+Validation includes extension host/webview and frontend regressions on both
+branches, Go Studio and URL checks, production frontend builds, and real Firefox
+DOM checks using synthetic backend data. Server remote/mobile transport tests
+also pass. Native OS browser launch, the editor's diff UI and target-device
+behavior still require a manual smoke test.
 
 Application archives contain their edition's binaries. Shared standalone tools
 are published once per platform. The two `praimate-desktop-windows-*` ZIPs are
