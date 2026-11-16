@@ -48,9 +48,6 @@
       await api.executeWorkerDAG(snapshot.id)
     })
   }
-  async function merge() {
-    if (await showConfirm({ title: 'Merge accepted worker changes?', message: 'Accepted commits will be integrated into the target branch. The workspace must be clean. Conflicts stop integration and remain in a separate review worktree.', confirmLabel: 'Merge accepted', tone: 'primary' })) await action(() => api.mergeWorkerDAG(snapshot.id))
-  }
   async function reset(task) {
     if (await showConfirm({ title: 'Discard failed task work?', message: 'This removes the task’s temporary worktree and all uncommitted changes inside it. Inspect the path shown below before continuing.', confirmLabel: 'Discard and reset' })) await action(() => api.resetWorkerDAGTask(snapshot.id, task.id))
   }
@@ -106,7 +103,7 @@
             <p class="hint">{task.result.baseCommit.slice(0, 10)} → {task.result.resultCommit.slice(0, 10)}</p>
             <p class="path">{task.result.changedFiles?.join(', ') || 'No file changes'}</p>
             <details><summary>Git diff{task.result.diffTruncated ? ' (preview)' : ''}</summary><pre class="diff">{task.result.diff || 'No changes'}</pre></details>
-            {#if task.review !== 'merged'}<div class="actions"><button disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept</button><button disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject</button></div>{/if}
+            {#if task.review !== 'merged'}<div class="actions"><button class="btn primary" disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept changes</button><button class="btn reject" disabled={busy || active} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject changes</button></div>{/if}
           {/if}
           {#if !active && ['failed', 'cancelled', 'blocked'].includes(task.status)}<div class="actions">{#if task.failurePhase === 'dependencies'}<button class="btn primary" disabled={busy} on:click={() => action(async () => {await api.resolveWorkerDAGTaskConflicts(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id)})}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={() => action(async () => { await api.retryWorkerDAGTask(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id) })}>{task.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue with existing changes'}</button><button disabled={busy} on:click={() => reset(task)}>Start over…</button></div>{/if}
           <details><summary>Task activity</summary>{#each (snapshot.events || []).filter(e => e.taskID === task.id).slice(-40) as event}<small>{event.kind}</small><pre>{event.text}</pre>{/each}</details>
@@ -117,7 +114,6 @@
       {#if needsReset}<p class="hint">Continue unsuccessful tasks with their existing changes, or explicitly start over. Previous attempts remain in the history.</p>{/if}
       <div class="actions">
         {#if snapshot.dag.tasks?.some(t => t.status === 'pending')}<button disabled={busy} on:click={execute}>Run ready tasks</button>{/if}
-        <button disabled={busy || !snapshot.dag.tasks?.some(t => t.review === 'accepted')} on:click={merge}>Merge accepted changes</button>
         <button disabled={busy} on:click={async () => { if (await showConfirm({ title: 'Clean reviewed worktrees?', message: 'This removes rejected and merged task worktrees, plus any temporary merge attempt. Saved diffs and commits remain in the run history.', confirmLabel: 'Clean worktrees' })) action(() => api.cleanupWorkerDAG(snapshot.id)) }}>Clean reviewed worktrees</button>
       </div>
     {/if}
@@ -142,4 +138,6 @@
   pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 11px; } .diff { background: var(--bg-elevated, var(--bg)); padding: 8px; }
   .error { color: var(--danger, #d74453); overflow-wrap: anywhere; } button { padding: 7px 12px; border-radius: var(--radius-sm); background: var(--bg-panel); border: 1px solid var(--border-bright); color: var(--text); cursor: pointer; transition: background 140ms var(--ease); } button:hover:not(:disabled) { background: var(--bg-raised); } button:disabled { opacity: .5; cursor: default; } .primary { background: var(--accent); color: var(--accent-fg); }
   .primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); filter: brightness(0.92); }
+  .reject { border-color: var(--err); color: var(--err); font-weight: 600; }
+  .reject:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 16%, transparent); border-color: var(--err); color: var(--err); }
 </style>

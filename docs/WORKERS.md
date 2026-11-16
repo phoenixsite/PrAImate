@@ -18,7 +18,7 @@ Select a card to focus its console. The attempt selector preserves the actual
 CLI/model of each historical attempt, even after Run settings change. **Activity**
 shows live output, reported reasoning, tool results, delegations and errors;
 **Result** shows its reported result; **Changes** previews the current task worktree;
-**Assignment** shows its task, workspace, parent and CLI session. Follow active
+**Assignment** shows its task, workspace, parent and CLI session. In the Studio / VS Code extension, **Compare in editor** opens a multi-file diff of the task's base and result commits (available after merge too, using the project's repository). Follow active
 focuses a working assignment; selecting a card allows inspecting another task.
 
 The board and separate execution window/panel share the same Core state and
@@ -61,8 +61,10 @@ Task cards preserve profile, CLI, provider/model route, branch, worktree path,
 base/result commits, changed files, result and Git diff. Diff previews are capped
 at 256 KiB; the worktree and saved commits provide the complete patch. Live events and saved attempts include task IDs in the board and activity console.
 
-Accept dependencies before accepting their dependent results. **Merge accepted
-changes** cherry-picks the accepted task commits, in dependency order, into a
+Accept dependencies before accepting their dependent results. Once the graph
+stops executing, a review bar above the board shows how many results are
+awaiting review and offers **Merge accepted changes** with the accepted count.
+It cherry-picks the accepted task commits, in dependency order, into a
 separate review worktree based on the current target branch. Only a successful
 integration fast-forwards the target branch. A conflict stops there and reports
 the review worktree path; the original checkout remains unchanged. No automatic

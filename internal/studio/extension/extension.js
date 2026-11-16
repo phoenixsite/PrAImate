@@ -13,6 +13,36 @@ let reconnectTimer, stopped = false, generation = 0, launchInfo = {}, connection
 let currentStatus = { connected: false, activeCLI: 'praimate-code', activeModel: '', activeAgent: '', activeTools: 'safe', activeWorkspace: '', availableCLIs: [], agents: [], models: [], desktopWindow:{available:false,hidden:false} };
 const workspace = () => currentStatus.activeWorkspace || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 const call = (method, params) => rpc ? rpc.request(method, params) : Promise.reject(new Error('PrAImate Core is offline'));
+
+// Opens a multi-file diff of a worker task's baseCommit..resultCommit. Paths come
+// from Core's snapshot, never from the webview message.
+async function compareTaskChanges(runId, taskID) {
+  const snapshot = await call('workers.get',{id:runId});
+  const task = snapshot?.dag?.tasks?.find(t => t.id === taskID);
+  if (!task) throw new Error('Task not found');
+  const tree = task.worktree?.path;
+  const result = task.result;
+  if (!(result?.baseCommit && result?.resultCommit)) throw new Error('This task has no saved result to compare');
+  if (![result.baseCommit,result.resultCommit].every(ref=>/^[a-f0-9]{7,64}$/i.test(ref))) throw new Error('This task has invalid result commits');
+  const git = vscode.extensions.getExtension('vscode.git');
+  if (!git) throw new Error('Source Control (the built-in Git extension) is not available in this editor.'+(tree ? ' Worktree: '+tree : ''));
+  const api = (await git.activate()).getAPI(1);
+  // A merged/cleaned task's commits remain in the project's object store.
+  const root = tree && fs.existsSync(tree) ? tree : snapshot.workspace;
+  if (!root || !fs.existsSync(root)) throw new Error('The task worktree and project repository are unavailable');
+  const repo = await api.openRepository(vscode.Uri.file(root));
+  if (!repo) throw new Error('Git could not open '+root+' as a repository');
+  const files = result.changedFiles || [];
+  if (!files.length) throw new Error('This task changed no files');
+  const resources = files.map(file => {
+    if (typeof file !== 'string' || !file || file.includes('\0')) throw new Error('This task contains an invalid changed file');
+    const resolved = path.resolve(root,file),relative = path.relative(path.resolve(root),resolved);
+    if (!relative || relative==='..' || relative.startsWith('..'+path.sep) || path.isAbsolute(relative)) throw new Error('Changed file is outside the task repository');
+    const uri = vscode.Uri.file(resolved);
+    return [uri,api.toGitUri(uri,result.baseCommit),api.toGitUri(uri,result.resultCommit)];
+  });
+  await vscode.commands.executeCommand('vscode.changes','Worker '+taskID+': '+result.baseCommit.slice(0,8)+' → '+result.resultCommit.slice(0,8),resources);
+}
 const report = err => vscode.window.showErrorMessage('PrAImate: ' + err.message);
 
 function disposeConnection() {
@@ -257,6 +287,11 @@ class ChatView {
         reconnect:connect,
         rescan:async () => { currentStatus.availableCLIs = await call('clis.list'); currentStatus.agents = await call('agents.list'); this.notifyStatus(); await refreshModels(); },
         refreshModels:() => refreshModels(true),
+        sessionModels:async () => {
+          const cli = String(data.cli || currentStatus.activeCLI);
+          const models = await call(data.force ? 'models.refresh' : 'models.list',{cli});
+          view.webview.postMessage({type:'sessionModels',requestId:data.requestId,cli,models:models || []});
+        },
         installCLI:() => installCLI(data.cli),
         resetSession:async () => { this.newChat(); await context.workspaceState.update('session', {}); await context.workspaceState.update('launchId', launchInfo.launchId || 'environment'); connect(); },
         output:() => output.show(),
@@ -322,6 +357,7 @@ class ChatView {
           await call('workers.graph.resolve',{id:data.id,taskID:data.taskID});
           await call('workers.graph.execute',{id:data.id});
         },
+        workerCompareChanges:async () => compareTaskChanges(data.id,data.taskID),
         workerTaskPreview:async () => {
           const preview = await call('workers.task.preview',{id:data.id,taskID:data.taskID});
           view.webview.postMessage({type:'workerTaskPreview',runId:data.id,taskID:data.taskID,preview});

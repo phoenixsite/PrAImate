@@ -9,5 +9,5 @@ window.go={main:{App:new Proxy({},{get(_,method){return async(...args)=>{calls.p
 window.runtime={EventsOn:()=>()=>{},EventsOff(){}}
 const snapshot={id:'review-fixture',task:'Review a saved task graph',status:'draft',profiles:[{tier:'middle',runtime:'cli',cli:'codex'}],events:[],dag:{targetBranch:'main',baseCommit:'abc',maxParallel:2,tasks:[{id:'one',description:'Apply the requested change',worker:{profile:'middle'},dependencies:[],status:'pending'}]}}
 let component
-window.issueReview={calls,show(mode){component?.$destroy();document.getElementById('app').replaceChildren();component=new ({graph:WorkerGraph,monitor:WorkerMonitor,documents:Documents}[mode])({target:document.getElementById('app'),props:mode==='documents'?{}:{snapshot,clis:data.ListCLIs}})}}
+window.issueReview={calls,show(mode,customSnapshot=snapshot){component?.$destroy();document.getElementById('app').replaceChildren();component=new ({graph:WorkerGraph,monitor:WorkerMonitor,documents:Documents}[mode])({target:document.getElementById('app'),props:mode==='documents'?{}:{snapshot:customSnapshot,clis:data.ListCLIs}})}}
 window.issueReview.show('graph')

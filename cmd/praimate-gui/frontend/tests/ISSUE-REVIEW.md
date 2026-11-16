@@ -25,3 +25,11 @@ themes and Documents MCP selection before opening an editor. `BIDI_URL`,
 `REVIEW_TEST_URL` and `REVIEW_TEST_OUTPUT` override the connection and screenshot
 paths. Run one Vite server at a time if worktrees share `node_modules`, since
 their dependency optimization caches also share that directory.
+
+Run `node tests/worker-review-regressions.mjs` after that check, using the same
+Firefox and Vite servers. It verifies plan focus in both themes, selected-CLI
+model suggestions, board scroll and search focus during streaming, completed-task
+tabs, and review/merge actions (including all-rejected results). It uses the same
+environment overrides and saves screenshots in
+`/tmp/praimate-worker-review-browser` by default. Run the browser checks
+sequentially: Firefox permits one active BiDi session.

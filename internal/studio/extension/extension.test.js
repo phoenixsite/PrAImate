@@ -235,6 +235,29 @@ test('Workers command is registered and opens the Workers page', async () => {
     assert.ok(manifest.contributes.commands.some(command => command.command === 'praimate.focusWorkers'));
   } finally { h.close(); }
 });
+test('session model requests use the CLI sent by the webview', async () => {
+  const h=extensionHarness('linux',true,null,req=>{
+    if(req.method==='models.list') return ['model-'+req.params.cli];
+    if(req.method==='models.refresh') return ['refreshed-'+req.params.cli];
+  });
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    let receive;const messages=[];
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view);
+    receive({type:'sessionModels',cli:'codex',requestId:1});
+    await new Promise(resolve=>setImmediate(resolve));
+    let reply=messages.filter(m=>m.type==='sessionModels').at(-1);
+    assert.equal(reply.cli,'codex'); assert.deepEqual([...reply.models],['model-codex']);
+    receive({type:'sessionModels',cli:'claude',force:true,requestId:2});
+    await new Promise(resolve=>setImmediate(resolve));
+    reply=messages.filter(m=>m.type==='sessionModels').at(-1);
+    assert.equal(reply.cli,'claude'); assert.deepEqual([...reply.models],['refreshed-claude']);
+    assert.equal(h.requests.filter(r=>r.method==='models.list').at(-1).params.cli,'codex');
+    assert.equal(h.requests.filter(r=>r.method==='models.refresh').at(-1).params.cli,'claude');
+  } finally {h.close();}
+});
 test('a Workers request is not replayed when the sidebar webview is recreated', async () => {
   const h = extensionHarness('linux');
   try {
@@ -359,21 +382,22 @@ test('private launch descriptor overrides stale environment and preserves edits 
   } finally {h.close();}
 });
 
-function webviewHarness(withAssistant = false) {
+function webviewHarness(withAssistant = false, persistedState = {}) {
   const html = fs.readFileSync(path.join(__dirname,'resources/chat.html'),'utf8');
   const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1].replace('/*__ASSISTANT_SCRIPT__*/',withAssistant ? fs.readFileSync(path.join(__dirname,'resources/assistant.js'),'utf8') : '');
   const elements = new Map();
   const element = tag => ({tag,dataset:{},listeners:{},value:'',checked:true,disabled:false,children:[],innerHTML:'',textContent:'',className:'',
     style:{},append(...v){this.children.push(...v);},prepend(v){this.children.unshift(v);},classList:{add(){},remove(){}},get options(){return this.children;},
-    focus(){},dispatchEvent(e){this.fire(e.type,e);},scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
-    addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChildren(...v){this.children=v;this.innerHTML='';},
+    focus(){document.activeElement=this;},getBoundingClientRect(){return {top:this.tag==='article'?120:0};},dispatchEvent(e){this.fire(e.type,e);},scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
+    addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChild(next,previous){const i=this.children.indexOf(previous);if(i<0)this.children.push(next);else this.children[i]=next;},scrollLeft:0,replaceChildren(...v){this.children=v;this.innerHTML='';},
     fire(name,event={}){(this.listeners[name] || this['on'+name])?.(event);}});
   const document = {getElementById:id => {if(!elements.has(id)) elements.set(id,element());return elements.get(id);},createElement:element};
   const posted = [], listeners = {};
+  let state = persistedState;
   const sandbox = {document,window:{addEventListener:(name,fn)=>(listeners[name] ||= []).push(fn),dispatchEvent:e=>(listeners[e.type] || []).forEach(fn=>fn(e))},Option:function(text,value){this.text=text;this.value=value;},
-    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m)}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Event:class{constructor(type){this.type=type;}}};
+    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m),getState:()=>state,setState:next=>{state=next;}}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Event:class{constructor(type){this.type=type;}}};
   vm.createContext(sandbox);vm.runInContext(script,sandbox);
-  return {elements,posted,send:data=>(listeners.message || []).forEach(fn=>fn({data})),eval:code=>vm.runInContext(code,sandbox)};
+  return {elements,posted,send:data=>(listeners.message || []).forEach(fn=>fn({data})),eval:code=>vm.runInContext(code,sandbox),state:()=>state};
 }
 const descendants = node => [node,...(node.children || []).flatMap(descendants)];
 test('webview renders escaped prose and code using text nodes and clears old history', () => {
@@ -403,6 +427,60 @@ test('status updates preserve unsaved settings; errors preserve the draft and of
   h.send({type:'status',status:{...status,connected:false,error:'Reopen Desktop'}});
   assert.equal(h.elements.get('connection').hidden,false); assert.equal(h.elements.get('send-btn').disabled,true);
   h.elements.get('reconnect-btn').fire('click'); assert.equal(h.posted.at(-1).type,'reconnect');
+});
+test('model suggestions follow the newly selected CLI until the settings are saved', () => {
+  const h = webviewHarness();
+  h.send({type:'status',status:{connected:true,activeCLI:'claude',activeModel:'original',activeTools:'safe',models:['claude-model'],availableCLIs:[{id:'claude',label:'Claude',available:true},{id:'codex',label:'Codex',available:true}]}});
+  assert.deepEqual(h.elements.get('model-list').children.map(option => option.value),['claude-model']);
+  h.elements.get('cli-select').value = 'codex';
+  h.elements.get('cli-select').fire('change');
+  let request = h.posted.at(-1);
+  assert.equal(request.type,'sessionModels'); assert.equal(request.cli,'codex'); assert.equal(request.force,false);
+  h.send({type:'sessionModels',requestId:request.requestId,cli:'claude',models:['stale-model']});
+  assert.deepEqual(h.elements.get('model-list').children.map(option => option.value),[],'old CLI suggestions are cleared while loading');
+  h.send({type:'sessionModels',requestId:request.requestId,cli:'codex',models:['codex-model']});
+  assert.deepEqual(h.elements.get('model-list').children.map(option => option.value),['codex-model']);
+  assert.deepEqual(h.eval('status.models'),['claude-model'],'saved session models stay tied to the stored CLI');
+  h.elements.get('refresh-models-btn').fire('click');
+  request = h.posted.at(-1);
+  assert.equal(request.type,'sessionModels'); assert.equal(request.cli,'codex'); assert.equal(request.force,true);
+  const latest=request.requestId;
+  h.send({type:'sessionModels',requestId:latest,cli:'codex',models:['fresh-model']});
+  h.send({type:'sessionModels',requestId:latest-1,cli:'codex',models:['outdated-model']});
+  assert.deepEqual(h.elements.get('model-list').children.map(option=>option.value),['fresh-model'],'late responses for the same CLI cannot overwrite a refresh');
+});
+
+test('active-file inclusion stays disabled across webview reloads', () => {
+  const h = webviewHarness();
+  assert.equal(h.elements.get('use-context').checked,true);
+  h.elements.get('use-context').checked = false;
+  h.elements.get('use-context').fire('change');
+  assert.equal(h.state().useContext,false);
+  const reloaded = webviewHarness(false,h.state());
+  assert.equal(reloaded.elements.get('use-context').checked,false);
+});
+test('chat activity preference and active-file preference survive together',()=>{
+  const h=webviewHarness();
+  h.elements.get('use-context').checked=false;h.elements.get('use-context').fire('change');
+  const messages=[{role:'assistant',content:'Readable answer',tools:[{name:'read',status:'completed'}]}];
+  h.send({type:'messages',messages});
+  assert.ok(descendants(h.elements.get('messages')).some(e=>e.className==='tool-pill'));
+  h.elements.get('activity-btn').fire('click');
+  assert.ok(!descendants(h.elements.get('messages')).some(e=>e.className==='tool-pill'));
+  const reloaded=webviewHarness(false,h.state());
+  assert.equal(reloaded.elements.get('use-context').checked,false);
+  assert.equal(reloaded.elements.get('activity-btn').textContent,'Show activity');
+  reloaded.send({type:'messages',messages});
+  assert.ok(!descendants(reloaded.elements.get('messages')).some(e=>e.className==='tool-pill'));
+});
+test('finishing an assistant reply reveals its start only while following the conversation',()=>{
+  for(const following of [true,false]){
+    const h=webviewHarness(),thread=h.elements.get('messages');
+    h.send({type:'messages',messages:[{role:'assistant',content:'Streaming',inProgress:true}]});
+    thread.scrollHeight=1000;thread.clientHeight=200;thread.scrollTop=following?800:100;
+    h.send({type:'messages',messages:[{role:'assistant',content:'Complete',inProgress:false},{role:'command',content:'Terminal output'}]});
+    assert.equal(thread.scrollTop,following?912:100,following?'the assistant start is brought into view':'reading older messages is respected');
+  }
 });
 test('pending CLI detection preserves the persisted permission level on save', () => {
   const h = webviewHarness();
@@ -721,4 +799,173 @@ test('worker recovery bridge preserves task identity and only executes after ret
     assert.ok(messages.some(m=>m.type==='workerActivity' && m.runId==='run' && m.workerID==='attempt' && m.activity.before===10));
     assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
   } finally {h.close();}
+});
+
+test('worker task compares base to result in the editor from Core data',async()=>{
+  const root=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'praimate-compare-'));
+  const task={id:'t1',worktree:{path:'',branch:'praimate/t1'},result:{baseCommit:'aaaaaaaaaaaa',resultCommit:'bbbbbbbbbbbb',changedFiles:['src/a.go','b.txt']}};
+  const h=extensionHarness('linux',true,null,req=>{
+    if(req.method==='workers.get')return {id:'run',workspace:path.join(root,'task-project'),dag:{tasks:[task]}};
+  });
+  try {
+    task.worktree.path=root;
+    fs.mkdirSync(path.join(root,'task-project'));
+    await new Promise(resolve=>setImmediate(resolve));
+    const opened=[],executed=[];
+    let gitAvailable=true;
+    h.vscode.Uri={file:p=>({fsPath:p}),joinPath:(_, ...parts)=>parts.join('/')};
+    h.vscode.extensions={getExtension:id=>id==='vscode.git' && gitAvailable ? {activate:async()=>({getAPI:()=>({openRepository:async u=>{opened.push(u.fsPath);return {};},toGitUri:(u,ref)=>({path:u.fsPath,ref})})})} : undefined};
+    h.vscode.commands.executeCommand=(...args)=>{executed.push(args);};
+    let receive;const messages=[];
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view);
+    const settle=()=>new Promise(resolve=>setImmediate(resolve));
+
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:2});await settle();
+    const [command,title,resources]=executed.at(-1);
+    assert.deepEqual(opened,[root]);
+    assert.equal(command,'vscode.changes');
+    assert.match(title,/t1: aaaaaaaa → bbbbbbbb/);
+    assert.equal(resources.length,2);
+    assert.deepEqual([...resources[0]].map(r=>r.ref),[undefined,'aaaaaaaaaaaa','bbbbbbbbbbbb']);
+    assert.equal(resources[1][0].fsPath,path.join(root,'b.txt'));
+
+    task.worktree.path=path.join(root,'removed-worktree');
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:5});await settle();
+    assert.equal(opened.at(-1),path.join(root,'task-project'),'a cleaned worktree falls back to the run project, not the active editor project');
+    task.result.changedFiles=Array.from({length:201},(_,i)=>`file-${i}.txt`);
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:6});await settle();
+    assert.equal(executed.at(-1)[2].length,201,'large results are not silently truncated');
+    const before=executed.length;
+    task.result.changedFiles=['../outside.txt'];
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:7});await settle();
+    assert.ok(messages.some(m=>m.type==='actionResult' && m.id===7 && !m.ok && /outside/.test(m.error)));
+    assert.equal(executed.length,before);
+    task.result.changedFiles=['safe.txt'];
+
+    // The webview cannot choose the path: an unknown task is rejected.
+    receive({type:'workerCompareChanges',id:'run',taskID:'../../etc',requestId:3});await settle();
+    assert.ok(messages.some(m=>m.type==='actionResult' && m.id===3 && !m.ok && /not found/.test(m.error)));
+
+    gitAvailable=false;
+    receive({type:'workerCompareChanges',id:'run',taskID:'t1',requestId:4});await settle();
+    assert.ok(messages.some(m=>m.type==='actionResult' && m.id===4 && !m.ok && /not available/.test(m.error) && m.error.includes(task.worktree.path)));
+  } finally {h.close();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('worker review bar offers merge outside the plan section and counts accepted results',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const task=(id,review)=>({id,description:id,dependencies:[],worker:{profile:'middle'},status:'completed',review,result:{baseCommit:'base',resultCommit:'result',changedFiles:[],diff:''}});
+  const snap=(status,tasks)=>({id:'run',task:'objective',status,updatedAt:status+tasks.map(t=>t.review).join(),profiles,events:[],dag:{tasks,maxParallel:2,targetBranch:'main',baseCommit:'abc'}});
+  const lanes=()=>h.elements.get('worker-lanes');
+  const find=(label)=>descendants(lanes()).filter(e=>e.tag==='button' && e.textContent===label);
+  const text=()=>descendants(lanes()).map(e=>e.textContent).join('\n');
+
+  // Nothing to merge yet: results await review and the button is disabled.
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:snap('review',[task('a','pending'),task('b','pending')])});
+  assert.match(text(),/2 results awaiting review/);
+  assert.equal(find('Merge accepted changes')[0].disabled,true);
+
+  // One accepted, one rejected: merge is enabled and posts the merge request.
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:snap('review',[task('a','accepted'),task('b','rejected')])});
+  assert.match(text(),/All results reviewed/);
+  assert.match(text(),/1 accepted · 1 rejected/);
+  const merge=find('Merge 1 accepted change')[0];
+  assert.equal(merge.disabled,false);
+  assert.equal(merge.className,'primary');
+  merge.fire('click');
+  assert.equal(h.posted.at(-1).type,'workerGraphMerge');
+  assert.equal(h.posted.at(-1).id,'run');
+
+  // The plan section no longer carries its own merge button: only the review bar has one.
+  const everything=[...descendants(h.elements.get('worker-result')),...descendants(lanes())];
+  assert.ok(everything.some(e=>e.tag==='button' && e.textContent==='Clean reviewed worktrees'),'plan section is rendered');
+  assert.equal(everything.filter(e=>e.tag==='button' && /^Merge/.test(e.textContent)).length,1);
+
+  // While the run is still executing the bar is hidden.
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'running'}],snapshot:snap('running',[task('a','accepted')])});
+  assert.ok(!/accepted change/.test(text()));
+});
+
+
+test('worker console keeps the selected tab when switching between completed tasks',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const task=(id,status='completed')=>({id,description:id,dependencies:[],worker:{profile:'middle'},status,review:status==='completed'?'pending':undefined,result:status==='completed'?{baseCommit:'base',resultCommit:'result',changedFiles:[id+'.txt'],diff:'diff of '+id}:undefined});
+  const lanes=()=>h.elements.get('worker-lanes');
+  const card=id=>descendants(lanes()).find(e=>String(e.className).includes('worker-task-card') && descendants(e).some(c=>c.tag==='strong' && c.textContent===id));
+  const tab=label=>descendants(lanes()).find(e=>e.tag==='button' && e.textContent===label);
+  const pressed=label=>String(tab(label)['aria-pressed']);
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:{id:'run',task:'objective',status:'review',updatedAt:'one',profiles,events:[],dag:{tasks:[task('a'),task('b'),task('c','pending')],maxParallel:2,targetBranch:'main',baseCommit:'abc'}}});
+  card('a').fire('click');
+  tab('Changes').fire('click');
+  assert.equal(pressed('Changes'),'true');
+  card('b').fire('click');
+  assert.equal(pressed('Changes'),'true','Changes stays selected for another completed task');
+  assert.ok(descendants(lanes()).some(e=>e.textContent==='diff of b'),'the console now shows the other task');
+  tab('Result').fire('click');
+  card('a').fire('click');
+  assert.equal(pressed('Result'),'true','Result stays selected when going back');
+  card('c').fire('click');
+  assert.equal(pressed('Activity'),'true','unfinished tasks return to live activity');
+});
+
+
+test('worker cards label rejected results as Rejected and keep them in Done',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const task=(id,review)=>({id,description:id,dependencies:[],worker:{profile:'middle'},status:'completed',review,result:{baseCommit:'base',resultCommit:'result',changedFiles:[],diff:''}});
+  h.send({type:'workerSnapshot',runs:[{id:'run',status:'review'}],snapshot:{id:'run',task:'objective',status:'review',updatedAt:'one',profiles,events:[],dag:{tasks:[task('a','accepted'),task('b','rejected')],maxParallel:2,targetBranch:'main',baseCommit:'abc'}}});
+  const lanes=h.elements.get('worker-lanes');
+  const titles=descendants(lanes).filter(e=>e.tag==='h2').map(e=>e.textContent);
+  assert.deepEqual(titles,['Needs you · 0','Working · 0','Done · 2','Queued · 0']);
+  const text=descendants(lanes).map(e=>e.textContent);
+  assert.ok(text.some(t=>t.startsWith('Rejected')),'rejected card is labelled Rejected');
+  assert.ok(text.some(t=>t.startsWith('Approved')),'accepted card keeps Approved');
+});
+
+
+test('streamed worker output keeps the board element and its horizontal scroll; the console still updates',()=>{
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  const event=(sequence,text)=>({workerID:'att',sequence,kind:'stream',text,timestamp:'2026-01-01T00:00:0'+sequence+'Z',tier:'middle'});
+  const snapshot=(events,extra={})=>({id:'run',task:'objective',status:'running',updatedAt:'u'+events.length+JSON.stringify(extra),profiles,events,
+    attempts:[{id:'att',taskID:'a',tier:'middle',status:'running',cli:'codex',model:'m'}],
+    dag:{tasks:[{id:'a',description:'A',dependencies:[],worker:{profile:'middle'},status:'running',...extra}],maxParallel:2,targetBranch:'main',baseCommit:'abc'}});
+  const send=snap=>h.send({type:'workerSnapshot',runs:[{id:'run',status:'running'}],selectedId:'run',snapshot:snap});
+  const lanes=()=>h.elements.get('worker-lanes');
+  const boardEl=()=>descendants(lanes()).find(e=>e.className==='worker-board');
+  const consoleEl=()=>descendants(lanes()).find(e=>e.className==='worker-console');
+  const text=()=>descendants(lanes()).map(e=>e.textContent).join('\n');
+
+  send(snapshot([event(1,'first chunk')]));
+  const board=boardEl(),firstConsole=consoleEl();
+  board.scrollLeft=240;
+  assert.match(text(),/first chunk/);
+
+  // Only the output changed: the same board element stays (so scroll and hover survive), the console is replaced.
+  send(snapshot([event(1,'first chunk'),event(2,'second chunk')]));
+  assert.equal(boardEl(),board,'board element reused');
+  assert.equal(board.scrollLeft,240);
+  assert.notEqual(consoleEl(),firstConsole,'console rebuilt with the new output');
+  assert.match(text(),/second chunk/);
+
+  // Something the board shows changed (a retry counter): it is rebuilt, but the scroll position is carried over.
+  send(snapshot([event(1,'first chunk'),event(2,'second chunk')],{status:'retrying',autoRetriesUsed:1}));
+  assert.notEqual(boardEl(),board,'board rebuilt when its content changed');
+  assert.equal(boardEl().scrollLeft,240,'scroll carried over to the rebuilt board');
+
+  // Another run starts from the beginning.
+  h.send({type:'workerSnapshot',runs:[{id:'other',status:'running'}],selectedId:'other',snapshot:{...snapshot([event(1,'x')]),id:'other',updatedAt:'o1'}});
+  assert.equal(boardEl().scrollLeft,0);
 });

@@ -2,7 +2,7 @@
   "name": "praimate-studio",
   "displayName": "PrAImate Studio",
   "description": "Native PrAImate Core IDE integration for Code-OSS / VSCodium",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "publisher": "PrAImate",
   "engines": {
     "vscode": "^1.75.0"

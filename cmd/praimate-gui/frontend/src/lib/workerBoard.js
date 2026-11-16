@@ -15,7 +15,7 @@ function column(status) {
 }
 
 function reviewLabel(review, runActive) {
-  if (review !== 'pending') return review === 'merged' ? 'Merged' : review === 'accepted' ? 'Approved' : 'Completed'
+  if (review !== 'pending') return review === 'merged' ? 'Merged' : review === 'accepted' ? 'Approved' : review === 'rejected' ? 'Rejected' : 'Completed'
   return runActive ? 'Completed · review when execution ends' : 'Ready to review'
 }
 
@@ -53,6 +53,12 @@ export function mergeWorkerEvents(history, live) {
     events.set(key, event)
   }
   return [...events.values()].sort((a,b) => a.sequence && b.sequence ? a.sequence - b.sequence : new Date(a.timestamp) - new Date(b.timestamp))
+}
+
+// Reviewing finished work means comparing tasks on the same tab (Changes, Result…),
+// so the console tab is kept between completed tasks. Any other switch starts at Activity.
+export function keepsConsoleTab(previousTask, nextTask) {
+  return previousTask?.status === 'completed' && nextTask?.status === 'completed'
 }
 
 export function workerStatusLabel(item) {

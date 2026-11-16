@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { workerBoardItems, workerStatusLabel, mergeWorkerEvents } from './workerBoard.js'
+import { readFile } from 'node:fs/promises'
+import { workerBoardItems, workerStatusLabel, mergeWorkerEvents, keepsConsoleTab } from './workerBoard.js'
 import { workerExecutions, workerUsage } from './workerActivity.js'
 
 test('attempts and usage remain visible after the event buffer is empty', () => {
@@ -49,3 +50,32 @@ test('retrying tasks stay in Working and old planning attempts do not clutter th
  assert.equal(items[0].preview,'Fix navigation');
  assert.equal(items[0].autoRetriesUsed,1);
 });
+
+test('the console tab is kept only between completed tasks', async () => {
+  const done = { status: 'completed' }
+  assert.equal(keepsConsoleTab(done, done), true)
+  for (const other of ['running', 'failed', 'pending', 'retrying']) {
+    assert.equal(keepsConsoleTab(done, { status: other }), false, 'completed -> ' + other)
+    assert.equal(keepsConsoleTab({ status: other }, done), false, other + ' -> completed')
+  }
+  assert.equal(keepsConsoleTab(undefined, done), false)
+  assert.equal(keepsConsoleTab(done, undefined), false)
+  // Choosing a card must go through that rule instead of always resetting to Activity.
+  const monitor = await readFile(new URL('./WorkerMonitor.svelte', import.meta.url), 'utf8')
+  const chooseCard = monitor.match(/function chooseCard\(item\) \{[\s\S]*?\n  \}/)[0]
+  assert.match(chooseCard, /keepsConsoleTab\(currentTask, tasks\.find\(task => task\.id === item\.taskID\)\)/)
+  assert.match(chooseCard, /if \(!keepTab\) tab = 'activity'/)
+})
+
+test('a rejected result is labelled Rejected and stays in Done next to accepted ones', () => {
+  const items = workerBoardItems({ status: 'review', dag: { tasks: [
+    { id: 'ok', status: 'completed', review: 'accepted' },
+    { id: 'no', status: 'completed', review: 'rejected' },
+    { id: 'in', status: 'completed', review: 'merged' },
+  ] } })
+  const byId = Object.fromEntries(items.map((card) => [card.taskID, card]))
+  assert.equal(workerStatusLabel(byId.no), 'Rejected')
+  assert.equal(workerStatusLabel(byId.ok), 'Approved')
+  assert.equal(workerStatusLabel(byId.in), 'Merged')
+  assert.deepEqual(['ok', 'no', 'in'].map((id) => byId[id].column), ['done', 'done', 'done'])
+})

@@ -4,10 +4,11 @@
   import { focusDialog } from './focusDialog.js'
   import { showConfirm } from './stores.js'
   import WorkerGraph from './WorkerGraph.svelte'
+  import { revealElement } from './scrollToElement.js'
   import WorkerBoard from './WorkerBoard.svelte'
   import WorkerProfiles from './WorkerProfiles.svelte'
   import VoiceButton from './VoiceButton.svelte'
-  import { workerBoardItems, mergeWorkerEvents, workerRunSummary } from './workerBoard.js'
+  import { workerBoardItems, mergeWorkerEvents, workerRunSummary, keepsConsoleTab } from './workerBoard.js'
   import { activeWorkerRun, workerExecutions, workerEventLabel, workerLabel, workerUsage, shouldRevealWorkerPlan } from './workerActivity.js'
   export let snapshot
   export let clis = []
@@ -27,6 +28,13 @@
   let settings = null
   let showGraph = false
   let graph
+  let planAnchor
+  async function revealPlan() {
+    const runID = snapshot.id
+    showGraph = true
+    await tick()
+    if (snapshot.id === runID) revealElement(planAnchor)
+  }
   async function runPlan() {
     if (busy || active) return
     const runID = snapshot.id
@@ -52,6 +60,9 @@
   $: tasks = snapshot.dag?.tasks || []
   $: board = workerBoardItems(snapshot)
   $: summary = workerRunSummary(snapshot)
+  $: acceptedTasks = tasks.filter(t => t.review === 'accepted')
+  $: awaitingReview = tasks.filter(t => t.result && t.review === 'pending')
+  $: rejectedTasks = tasks.filter(t => t.review === 'rejected')
   $: if (snapshot.id !== lastRun) { selected = ''; selectedTask = ''; lastRun = snapshot.id; viewedWorker = ''; history = []; error = ''; draft = ''; settings = null; showGraph = snapshot.status === 'draft' }
   $: if (shouldRevealWorkerPlan(snapshot, revealedPlan)) { revealedPlan = snapshot.id; showGraph = true }
   $: if (!selectedTask && !executions.some(e => e.id === selected)) {
@@ -76,7 +87,11 @@
   function elapsed(start, end = now) { if (!start || new Date(start).getTime() <= 0) return '0m 0s'; const seconds = Math.max(0, Math.floor((Number(end) - new Date(start).getTime()) / 1000)); return Math.floor(seconds / 60) + 'm ' + seconds % 60 + 's' }
   async function scrollLatest() { await tick(); if (timeline) timeline.scrollTop = timeline.scrollHeight }
   function selectActive(list) { const worker = list.find(e => e.id === selected && e.status === 'running') || list.find(e => e.status === 'running') || list.find(e => e.status === 'waiting') || list.find(e => tasks.some(task => task.id === e.taskID && task.status === 'retrying')); if (worker) { selected = worker.id; selectedTask = worker.taskID || '' } }
-  function chooseCard(item) { selectedTask = item.taskID; selected = item.attemptID; focusActive = false; tab = 'activity' }
+  function chooseCard(item) {
+    const keepTab = keepsConsoleTab(currentTask, tasks.find(task => task.id === item.taskID))
+    selectedTask = item.taskID; selected = item.attemptID; focusActive = false
+    if (!keepTab) tab = 'activity'
+  }
   async function loadHistory(reset = false) {
     const key = snapshot.id + ':' + selected
     if (!selected || !snapshot.activityVersion) return
@@ -109,6 +124,13 @@
     const config = { workspace:snapshot.workspace,accessMode:snapshot.accessMode || 'supervised',maxRetries:snapshot.maxRetries || 0,retryDelaySeconds:snapshot.retryDelaySeconds || 0, profiles:snapshot.profiles.map(p => ({...p,timeoutSeconds:p.tier === 'primary' ? 0 : p.timeoutSeconds})) }
     await action(async () => { await api.updateWorkerRunConfig(id, config); await api.retryWorkerPlanning(id) })
   }
+  async function mergeAccepted() {
+    if (busy || active || !acceptedTasks.length) return
+    const runID = snapshot.id
+    if (await showConfirm({ title: 'Merge accepted worker changes?', message: 'Accepted commits will be integrated into the target branch. The workspace must be clean. Conflicts stop integration and remain in a separate review worktree.', confirmLabel: 'Merge accepted', tone: 'primary' })) {
+      if (snapshot.id === runID && !active && !busy) await action(() => api.mergeWorkerDAG(runID))
+    }
+  }
   async function continueRun() { if (draft.trim()) await action(async () => { await api.continueWorkerRun(snapshot.id, draft); draft = '' }) }
   async function continueTask() { if (currentTask) await action(async () => { await api.retryWorkerDAGTask(snapshot.id,currentTask.id); await api.executeWorkerDAG(snapshot.id) }) }
   async function resolveConflicts(task = currentTask) { if (task) await action(async () => { await api.resolveWorkerDAGTaskConflicts(snapshot.id,task.id); await api.executeWorkerDAG(snapshot.id) }) }
@@ -123,6 +145,7 @@
   {#if approvals.length}<div class="attention-banner" role="status"><strong>{approvals.length} approval request{approvals.length === 1 ? '' : 's'} need your attention.</strong><span>Execution resumes after you respond.</span></div>{/if}
   {#if summary.total}<div class="progress-summary" aria-label="Task progress"><div class="progress-track"><span style={'width:' + summary.completed.length / summary.total * 100 + '%'}></span></div><div><span>{summary.completed.length}/{summary.total} complete</span><span>{summary.working.length} working</span><span>{summary.retrying.length} retrying</span><span>{summary.failed.length} failed</span><span>{summary.blocked.length} blocked</span></div></div>{/if}
   {#if active && summary.review.length}<p class="muted" role="status">{summary.review.length} completed result{summary.review.length === 1 ? '' : 's'} can be accepted or rejected when the task graph finishes executing.</p>{/if}
+  {#if !active && (awaitingReview.length || acceptedTasks.length || rejectedTasks.length)}<div class="review-bar" role="status"><div><strong>{awaitingReview.length ? awaitingReview.length + ' result' + (awaitingReview.length === 1 ? '' : 's') + ' awaiting review' : 'All results reviewed'}</strong><span>{acceptedTasks.length} accepted · {rejectedTasks.length} rejected</span></div><button class="btn primary" disabled={busy || !acceptedTasks.length} title={acceptedTasks.length ? '' : 'Accept at least one result to merge'} on:click={mergeAccepted}>{acceptedTasks.length ? `Merge ${acceptedTasks.length} accepted change${acceptedTasks.length === 1 ? '' : 's'}` : 'Merge accepted changes'}</button></div>{/if}
   {#if snapshot.nextRetryAt}<div class="retry-banner" role="status"><strong>Automatic retry {snapshot.autoRetriesUsed}/{snapshot.maxRetries}</strong><span>Next attempt at {new Date(snapshot.nextRetryAt).toLocaleTimeString()}. Stop cancels the retry.</span></div>{/if}
   {#if snapshot.error}<section class="failure" role="alert">
     <header><strong>{summary.failed.length ? summary.failed.length + ' task(s) need attention' : 'Execution needs attention'}</strong><button disabled={busy || active} on:click={openSettings}>Adjust run settings</button></header>
@@ -133,7 +156,7 @@
     {#if snapshot.dag && !tasks.length && !active}<div class="buttons"><button disabled={busy} on:click={() => action(() => api.retryWorkerPlanning(snapshot.id))}>Retry planning</button>{#if snapshot.profiles?.some(p => p.tier === 'primary' && p.timeoutSeconds > 0) && /deadline|timeout/i.test(snapshot.error)}<button disabled={busy} on:click={retryWithoutTimeout}>Retry without call timeout</button>{/if}</div>{/if}
   </section>{/if}
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
-  {#if snapshot.status === 'draft'}<div class="plan-ready" role="status"><div><strong>Plan ready · {tasks.length} assignment{tasks.length === 1 ? '' : 's'}</strong><span>Review the assignments below, then run the task graph to start the workers.</span></div><div class="buttons"><button on:click={() => showGraph = true}>Review plan</button><button class="btn primary" disabled={busy || !tasks.length} on:click={runPlan}>Run task graph</button></div></div>{/if}
+  {#if snapshot.status === 'draft'}<div class="plan-ready" role="status"><div><strong>Plan ready · {tasks.length} assignment{tasks.length === 1 ? '' : 's'}</strong><span>Review the assignments below, then run the task graph to start the workers.</span></div><div class="buttons"><button on:click={revealPlan}>Review plan</button><button class="btn primary" disabled={busy || !tasks.length} on:click={runPlan}>Run task graph</button></div></div>{/if}
   <WorkerBoard items={board} selected={selectedTask || (current ? 'tier:' + current.tier : selected)} on:select={event => chooseCard(event.detail)} />
   <div class="console">
     <header class="console-head">
@@ -145,7 +168,7 @@
     </header>
     <nav class="console-tabs" aria-label="Assignment details">{#each [['activity','Activity'],['output','Result'],['changes','Changes'],['assignment','Assignment']] as [value,label]}<button class:selected={tab === value} on:click={() => tab = value}>{label}</button>{/each}</nav>
     {#if currentTask?.status === 'retrying'}<div class="retry-banner" role="status"><strong>Retry {currentTask.autoRetriesUsed}/{snapshot.maxRetries} scheduled</strong><span>Next attempt at {new Date(currentTask.nextRetryAt).toLocaleTimeString()}. Existing changes will be reused.</span></div>{/if}
-    {#if currentTask && !active && ['failed','blocked','cancelled'].includes(currentTask.status)}<div class="recovery"><strong>{currentTask.failurePhase === 'dependencies' ? 'Recover dependency integration' : 'Continue this task without losing changes'}</strong>{#if currentTask.failurePhase === 'dependencies'}<button class="btn primary" disabled={busy} on:click={() => resolveConflicts()}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={continueTask}>{currentTask.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue task'}</button><button disabled={busy} on:click={startOver}>Start over…</button><button on:click={() => { showGraph = true }}>Route options</button></div>{/if}
+    {#if currentTask && !active && ['failed','blocked','cancelled'].includes(currentTask.status)}<div class="recovery"><strong>{currentTask.failurePhase === 'dependencies' ? 'Recover dependency integration' : 'Continue this task without losing changes'}</strong>{#if currentTask.failurePhase === 'dependencies'}<button class="btn primary" disabled={busy} on:click={() => resolveConflicts()}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={continueTask}>{currentTask.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue task'}</button><button disabled={busy} on:click={startOver}>Start over…</button><button on:click={revealPlan}>Route options</button></div>{/if}
     {#if tab === 'activity'}
       <div class="filters" role="group" aria-label="Activity filter">{#each [['all','All'],['io','Input / output'],['reasoning','Reported reasoning'],['delegation','Handoffs'],['errors','Errors']] as [value,label]}<button class:selected={filter === value} on:click={() => filter = value}>{label}</button>{/each}<label><input type="checkbox" bind:checked={follow} on:change={() => { if (follow) scrollLatest() }} /> Follow live</label></div>
       {#if current && ['running','waiting'].includes(current.status)}<div class="waiting"><span class="dot live"></span>{current.status === 'waiting' ? 'Waiting for a delegated assignment.' : current.phase === 'tool' ? 'Tool is running or awaiting approval.' : 'Model call active for ' + elapsed(current.callStartedAt || current.startedAt) + '. Last reported activity: ' + (current.lastProgressAt && new Date(current.lastProgressAt).getTime() > 0 ? elapsed(current.lastProgressAt) + ' ago.' : 'not yet available.')}{#if current.timeoutSeconds} Call timeout: {current.timeoutSeconds}s.{/if}</div>{/if}
@@ -160,13 +183,13 @@
       <div class="detail-pane">{#if current?.error}<p class="failure">{current.error}</p>{/if}<pre>{allEvents.filter(e => e.kind === 'result').at(-1)?.text || (currentTask && (!current || current.id === executions.filter(e => e.taskID === currentTask.id).at(-1)?.id) ? currentTask.output : '') || current?.output || 'No result has been reported yet.'}</pre>{#if current?.usage?.calls}<p class="muted">{current.usage.input.toLocaleString()} input · {current.usage.output.toLocaleString()} output tokens · {current.usage.calls} calls</p>{/if}</div>
     {:else if tab === 'changes'}
       <div class="detail-pane"><div class="buttons"><strong>Workspace changes</strong><button disabled={previewBusy || !currentTask?.worktree} on:click={loadPreview}>Refresh</button></div>{#if preview}{#if preview.conflicts?.length}<p role="alert">Conflicted files: {preview.conflicts.join(', ')}. Resolve with the worker, or edit and stage these files before continuing.</p>{/if}<code>{preview.path || currentTask?.worktree?.path || ''}</code><pre class="file-status">{preview.status || 'No tracked file changes'}</pre><pre>{preview.diff || 'No tracked diff. New files are listed above.'}</pre>{#if preview.truncated}<p class="muted">Preview truncated. Inspect the worktree for the complete diff.</p>{/if}{:else}<p class="muted">{previewBusy ? 'Reading changes…' : 'This assignment has no isolated worktree yet.'}</p>{/if}
-        {#if currentTask?.result && currentTask.review !== 'merged'}<div class="buttons"><button class="btn primary" disabled={active || busy} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'accepted'))}>Accept changes</button><button disabled={active || busy} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'rejected'))}>Reject</button></div>{/if}
+        {#if currentTask?.result && currentTask.review !== 'merged'}<div class="buttons"><button class="btn primary" disabled={active || busy} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'accepted'))}>Accept changes</button><button class="btn reject" disabled={active || busy} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'rejected'))}>Reject changes</button></div>{/if}
       </div>
     {:else}
       <div class="detail-pane"><h3>Assignment</h3><pre>{currentTask?.description || current?.assignment || snapshot.task}</pre>{#if currentTask?.dependencies?.length}<p>Depends on: {currentTask.dependencies.join(', ')}</p>{/if}<code>{current?.workspace || currentTask?.worktree?.path || snapshot.workspace}</code>{#if current?.sessionID}<p class="muted">CLI session: {current.sessionID}</p>{/if}{#if current?.parentID}<p class="muted">Delegated by {workerLabel(executions.find(e => e.id === current.parentID)?.tier)}. Results return to that assignment.</p>{/if}</div>
     {/if}
   </div>
-  {#if snapshot.dag && tasks.length}<button class="graph-toggle" aria-expanded={showGraph} on:click={() => showGraph = !showGraph}>{showGraph ? 'Hide plan & integration' : 'Plan, routes & integration'}</button>{#if showGraph}<WorkerGraph bind:this={graph} {snapshot} {clis} {models} on:models on:refresh />{/if}{/if}
+  {#if snapshot.dag && tasks.length}<button class="graph-toggle" aria-expanded={showGraph} on:click={() => showGraph = !showGraph}>{showGraph ? 'Hide plan & integration' : 'Plan, routes & integration'}</button>{#if showGraph}<div class="plan-anchor" role="region" aria-label="Plan, routes and integration" tabindex="-1" bind:this={planAnchor}><WorkerGraph bind:this={graph} {snapshot} {clis} {models} on:models on:refresh /></div>{/if}{/if}
   {#if snapshot.result}<details class="result"><summary>Run summary</summary><pre>{snapshot.result}</pre></details>{/if}
   {#if !snapshot.dag}<div class="composer" data-voice-composer><VoiceButton disabled={active || busy} context={{page:'workers',worker_id:snapshot.id}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) continueRun() }} /><textarea rows="2" bind:value={draft} disabled={active || busy} aria-label="Follow-up worker task" placeholder="Continue with a new instruction…"></textarea><button class="btn primary" disabled={active || busy || !draft.trim()} on:click={continueRun}>Continue</button></div>{/if}
 </section>
@@ -179,7 +202,10 @@
   </div></div>
 {/if}
 <style>
+  .plan-anchor{scroll-margin-top:12px}.plan-anchor:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
   .primary:hover:not(:disabled){background:var(--accent);border-color:var(--accent);color:var(--accent-fg);filter:brightness(0.92)}
+  .reject{border-color:var(--err);color:var(--err);font-weight:600}.reject:hover:not(:disabled){background:color-mix(in srgb,var(--err) 16%,transparent);border-color:var(--err);color:var(--err)}
+  .review-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--accent-soft)}.review-bar>div{display:grid;gap:2px}.review-bar span{color:var(--text-dim);font-size:12px}
   .progress-summary{display:grid;gap:8px}.progress-summary>div:last-child{display:flex;gap:18px;flex-wrap:wrap;color:var(--text-dim);font-size:12px}.progress-track{height:5px;border-radius:5px;background:var(--bg-raised);overflow:hidden}.progress-track span{display:block;height:100%;background:var(--ok);transition:width .2s}.failure>header,.failed-task{display:flex;gap:16px;align-items:flex-start;justify-content:space-between}.failed-task{padding:14px 0;border-top:1px solid var(--border);margin-top:12px}.failed-task>div{min-width:0}.failed-task p{font-size:12px;line-height:1.5;max-height:96px;overflow:auto}.failed-task button{flex-shrink:0}.access-chip{font-size:11px;color:var(--accent);border:1px solid var(--border);border-radius:20px;padding:4px 9px}.retry-banner{padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--accent-soft);color:var(--text);border-radius:var(--radius);font-size:12px}.retry-banner span{color:var(--text-dim)}
 
   .monitor{display:grid;gap:16px;min-width:0}.toolbar,.buttons,.run-state,.console-head,.filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.toolbar,.console-head{justify-content:space-between}.muted,small,time{color:var(--text-dim)}small,time{font-size:11px}.dot{width:8px;height:8px;border-radius:50%;background:var(--text-dim);display:inline-block;flex-shrink:0}.dot.live{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 14%,transparent);animation:pulse 2s ease-in-out infinite}.dot.failed{background:var(--err)}button{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--border-bright);border-radius:var(--radius-sm);background:var(--bg-panel);color:var(--text);padding:8px 12px;transition:background 150ms var(--ease),border-color 150ms var(--ease)}button:hover:not(:disabled){background:var(--bg-raised);border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}.primary,.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,var(--bg-panel))}.primary{background:var(--accent);color:var(--accent-fg)}.stop{color:var(--err)}.failure{border:1px solid color-mix(in srgb,var(--err) 45%,var(--border));border-radius:var(--radius);background:color-mix(in srgb,var(--err) 6%,var(--bg-panel));padding:16px;overflow-wrap:anywhere}.failure p{margin:8px 0;white-space:pre-wrap}.failure .buttons{margin-top:12px}.console{min-width:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel);overflow:hidden}.console-head{padding:16px;border-bottom:1px solid var(--border);font-size:13px}.console-head p{font-size:12px;color:var(--text-dim);margin:5px 0 0}summary{cursor:pointer;color:var(--text-dim)}code{overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.5}.filters{padding:10px 14px;border-bottom:1px solid var(--border);gap:6px}.filters button{padding:5px 8px;font-size:11px}.filters label{font-size:11px;margin-left:auto;color:var(--text-dim);display:flex;align-items:center;gap:4px}.timeline{scrollbar-color:var(--border-bright) var(--bg-panel);height:420px;overflow:auto;padding:14px;scrollbar-gutter:stable}.timeline article{margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:9px;background:var(--bg)}.timeline article header{display:flex;justify-content:space-between;gap:8px;font-size:11px}.timeline pre,.result pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--font-mono,monospace);margin:10px 0 0}.error-event{border-color:var(--err)!important}.handoff{border-color:var(--accent)!important}.waiting{padding:12px 16px;color:var(--text-dim);font-size:11px;background:var(--bg-raised);line-height:1.6}.waiting .dot{margin-right:8px}.graph-toggle{justify-self:start}.result{padding:14px;border:1px solid var(--border);border-radius:var(--radius)}.composer{display:flex;gap:10px;align-items:flex-end}.composer textarea{flex:1}textarea{font:inherit;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--border-bright);border-radius:var(--radius-sm);padding:12px;resize:vertical}.backdrop{position:fixed;inset:0;z-index:200;background:var(--overlay);backdrop-filter:blur(8px);display:grid;place-items:center;padding:24px}.settings{width:min(1050px,100%);max-height:90vh;overflow:auto;display:grid;gap:16px;padding:24px;border:1px solid var(--border-bright);border-radius:var(--radius);background:var(--bg);box-shadow:var(--shadow-overlay)}.settings header,.settings footer{display:flex;gap:10px;align-items:center;justify-content:space-between}.settings h2,.settings p{margin:0}.settings p{font-size:13px;color:var(--text-dim);line-height:1.6}.settings footer{justify-content:flex-end}@keyframes pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--ok) 4%,transparent)}}@media(prefers-reduced-motion:reduce){.dot.live{animation:none}button{transition:none}}@media(max-width:800px){.timeline{height:360px}}
