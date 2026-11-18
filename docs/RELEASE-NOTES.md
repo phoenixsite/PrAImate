@@ -1,45 +1,47 @@
-# PrAImate 1.3.6
+# PrAImate 1.3.7
 
-**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.6/docs/INSTALLATION.md)**.
+**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.7/docs/INSTALLATION.md)**.
 
-Desktop, Server and the Android preview are **1.3.6**. This release integrates the
-reviewed Studio and Workers contributions from PRs #33, #35, #37, #38, #40, #42,
-#43, #45, #47 and #49, with additional regression fixes for both editions.
-Thanks to **phoenixsite** for these contributions.
+Desktop, Server and the Android preview are **1.3.7**. This release resolves
+#50, #51 and #53, incorporating the reviewed contributions from PRs #52 and #54.
+Thanks to **phoenixsite** for the updater and Linux icon fixes.
 
-- Show Studio model suggestions for the CLI selected in session settings before
-  Save. Ignore stale responses, including out-of-order refreshes of the same CLI,
-  and preserve unsaved settings during background updates.
-- Preserve the Include selection / active file preference across webview reloads.
-  Add a persistent Hide/Show activity control. When a followed assistant turn
-  finishes, show the start of its reply without interrupting older-message reading.
-- Open saved Worker results with **Compare in editor** in Studio. Use the run's
-  repository when its worktree has been cleaned, validate paths and commit refs,
-  and include all changed files in the editor comparison.
-- Make Worker review actions visible above the board, with awaiting, accepted and
-  rejected counts, a clear Merge action, and distinct Accept/Reject buttons. Keep
-  the summary visible when every result is rejected. Prevent a delayed merge
-  confirmation from applying to a different run.
-- Reveal and focus the plan when Review plan or Route options is chosen. Respect
-  reduced-motion settings and keep automatic plan opening from forcing a scroll.
-- Keep Changes/Result selected when switching between completed tasks. Show
-  Rejected explicitly on rejected task cards. Preserve Studio board scroll,
-  search focus and caret while worker output streams.
-- Open Desktop web and mail links through the local system browser with URL
-  validation and error feedback. Managed Server windows use their local opener;
-  remote browsers and Android keep their own link handling.
-- Retain the 1.3.5 local LLM certificate transport fixes, edition-safe updates and
-  Windows Desktop compatibility archives.
+- Let slow, active self-update downloads finish. Downloads now have a 60-second
+  inactivity deadline instead of a 60-second total limit. Response headers and
+  body data renew the idle budget; stalled downloads are canceled with a clear
+  error and partial files are removed. Metadata request limits are preserved.
+- Restore the Linux application-menu icon after installation from a release
+  archive. Keep the extracted icon available when creating shortcuts, copy it to
+  the user's icon locations, and always write the themed `Icon=praimate` entry.
+- Support personal extensions in native Studio through **Editor environment →
+  Extensions folder → Save and refresh**, or
+  `praimate studio extensions /absolute/path/to/extensions`. Existing plugins
+  are preserved; only PrAImate's integration is provisioned in the selected folder.
+- Keep Studio settings and history private with a separate editor data profile
+  for each extensions folder. New windows use the saved choice without reusing
+  an editor process configured for another folder. **Use managed folder** or
+  `praimate studio extensions --managed` restores the original default.
+- Refresh standalone Studio launchers after changing the folder. Serialize
+  profile changes and treat quotes and shell metacharacters in paths literally.
+  Missing folders and corrupt preferences produce recoverable errors.
+- Retain the Studio/Workers improvements from 1.3.6, the local LLM certificate
+  transport fixes and edition-safe updates.
 
-The bundled Studio extension is **0.7.4**. Restart PrAImate and reopen Studio after
-updating to load the new extension. The Android **1.3.6** APK includes the shared
-Worker interface changes and is available through the client's update checker.
+**If an older version's updater stops a slow download after 60 seconds**, use the
+[installer or manually download the archive](https://github.com/sPROFFEs/PrAImate/blob/v1.3.7/docs/INSTALLATION.md)
+for this update. The running old updater still has its original timeout until
+its binary is replaced.
 
-Validation includes extension host/webview and frontend regressions on both
-branches, Go Studio and URL checks, production frontend builds, and real Firefox
-DOM checks using synthetic backend data. Server remote/mobile transport tests
-also pass. Native OS browser launch, the editor's diff UI and target-device
-behavior still require a manual smoke test.
+The bundled Studio extension remains **0.7.4**. Restart PrAImate after updating.
+The combined release includes the Android **1.3.7** preview APK, also available
+through the client's update checker.
+
+Validation includes reproducible updater/icon regressions, Go tests and race
+checks, offline installer tests for both editions, 27 Studio frontend tests per
+branch, production frontend builds, GUI package checks and Windows Studio test
+cross-compilation. Firefox checks use the real Svelte DOM with a synthetic native
+bridge in both themes at mobile/desktop widths. Native editor tests use a fixture
+launcher; actual VS Code/VSCodium and target-device smoke tests remain pending.
 
 Application archives contain their edition's binaries. Shared standalone tools
 are published once per platform. The two `praimate-desktop-windows-*` ZIPs are
