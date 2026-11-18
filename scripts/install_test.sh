@@ -105,3 +105,4 @@ if install_bundle; then
 fi
 
 echo "install update cleanup: ok"
+bash "$REPO_ROOT/scripts/install_release_icon_test.sh"

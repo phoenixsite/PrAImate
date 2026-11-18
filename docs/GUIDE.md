@@ -240,8 +240,22 @@ If setup is required, Studio asks before installing and only opens the editor
 after setup succeeds. Environment and history errors remain on the Studio page.
 The **CLIs & Tools** Studio installer and `praimate studio install` use the same
 setup as Studio's **Repair** action. Installation, status, updates and repair do
-not require unlocking the database. They use a private editor profile and
-extension directory, leaving your normal VS Code / VSCodium profile unchanged.
+not require unlocking the database. By default they use a private editor profile
+and extension directory, leaving your normal VS Code / VSCodium profile unchanged.
+To reuse personal extensions, expand **Editor environment → Extensions folder**,
+choose an existing extension directory (for example `~/.vscode/extensions` for
+VS Code or `~/.vscode-oss/extensions` for Code-OSS / VSCodium; see the
+[VSCodium migration guide](https://github.com/VSCodium/vscodium/blob/master/docs/migration.md)), and select
+**Save and refresh**. Browse to the actual directory; typed paths must be absolute.
+PrAImate installs or refreshes only its own integration in that folder; other
+extensions remain in place. Studio keeps separate settings and history for each
+extensions folder, so existing windows keep their current extensions and new
+windows use the saved choice. **Use managed folder** restores the original profile.
+The CLI supports `praimate studio extensions /absolute/path/to/extensions`,
+`praimate studio extensions` to show the current folder, and
+`praimate studio extensions --managed` to reset it without opening the database.
+Use a separate extensions folder for each simultaneously running PrAImate profile.
+This setting applies to native Studio, not the Server browser or Android editor.
 If the extension files exist but the editor no longer lists them, repair
 registers the bundled extension again using the editor's extension installer.
 Opening a project also refreshes the integration and its displayed status.

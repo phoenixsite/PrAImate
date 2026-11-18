@@ -22,6 +22,8 @@ func runStudio(args []string) int {
 			return runStudioUpdate()
 		case "repair":
 			return runStudioRepair()
+		case "extensions":
+			return runStudioExtensions(args[1:])
 		case "-h", "--help", "help":
 			printStudioHelp()
 			return 0
@@ -89,6 +91,34 @@ func runStudio(args []string) int {
 		fmt.Fprintf(os.Stderr, "warning: Studio opened, but recent project history could not be saved: %v\n", err)
 	}
 
+	return 0
+}
+
+func runStudioExtensions(args []string) int {
+	if len(args) > 1 {
+		fmt.Fprintln(os.Stderr, "Usage: praimate studio extensions [absolute-directory|--managed]")
+		return 2
+	}
+	var prefs *studio.EditorPreferences
+	var err error
+	if len(args) == 0 {
+		prefs, err = studio.EditorExtensionPreferences()
+	} else {
+		directory := args[0]
+		if directory == "--managed" {
+			directory = ""
+		}
+		prefs, err = studio.NewManager(nil).ConfigureExtensions(context.Background(), directory)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Studio extensions:", err)
+		return 1
+	}
+	directory := prefs.ExtensionsDirectory
+	if directory == "" {
+		directory = prefs.ManagedDirectory
+	}
+	fmt.Fprintln(os.Stdout, directory)
 	return 0
 }
 
@@ -198,6 +228,7 @@ func printStudioHelp() {
 	fmt.Fprintln(os.Stderr, "  install                    Install Studio integration and built-in extension")
 	fmt.Fprintln(os.Stderr, "  update                     Update Studio integration to matching version")
 	fmt.Fprintln(os.Stderr, "  repair                     Repair Studio integration, permissions and configs")
+	fmt.Fprintln(os.Stderr, "  extensions [dir|--managed]  Show or choose the extensions directory")
 	fmt.Fprintln(os.Stderr, "\nOptions:")
 	fmt.Fprintln(os.Stderr, "  --cli <name>               CLI engine (praimate-code, claude, codex, opencode)")
 	fmt.Fprintln(os.Stderr, "  --model <model>            Model override")

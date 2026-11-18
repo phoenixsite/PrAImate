@@ -8,6 +8,14 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/studio"
 )
 
+func (a *App) StudioGetEditorPreferences() (*studio.EditorPreferences, error) {
+	return studio.EditorExtensionPreferences()
+}
+
+func (a *App) StudioSaveEditorPreferences(directory string) (*studio.EditorPreferences, error) {
+	return studio.NewManager(a.core).ConfigureExtensions(a.ctx, directory)
+}
+
 // StudioGetStatus returns the installation and daemon status for PrAImate Studio.
 func (a *App) StudioGetStatus() (*studio.StudioStatus, error) {
 	mgr := studio.NewManager(a.core)

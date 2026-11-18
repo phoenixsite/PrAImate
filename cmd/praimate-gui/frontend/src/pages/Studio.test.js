@@ -36,3 +36,65 @@ test('duplicate open requests create only one installation confirmation', async 
     globalThis.window = previous
   }
 })
+
+async function preferencesComponent(host) {
+  const source = await readFile(new URL('./Studio.svelte', import.meta.url), 'utf8')
+  const script = source.match(/<script>([\s\S]*?)<\/script>/)[1]
+    .replace('const session =', 'export const session =')
+    .replace('let extensionsDirectory =', 'export let extensionsDirectory =')
+    .replace('async function loadEditorPreferences(', 'export async function loadEditorPreferences(')
+    .replace('async function saveEditorPreferences(', 'export async function saveEditorPreferences(')
+  const { js } = compile(`<script>${script}</script>`, { generate: 'dom', accessors: true })
+  const code = js.code.replace(/(["'])(svelte(?:\/[^"']+)?|\.\.\/lib\/[^"']+)\1/g, (_, quote, name) =>
+    JSON.stringify(name.startsWith('svelte') ? import.meta.resolve(name) : new URL(name, import.meta.url).href))
+  const { default: Studio } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+  globalThis.window = { go: { main: { App: host } } }
+  return new Studio({ target: {} })
+}
+
+test('Studio extension preferences load, save once, report errors and restore the managed folder', async () => {
+  const previous = globalThis.window
+  const calls = []
+  let finish
+  const host = {
+    StudioGetStatus: async () => ({ state: 'installed' }),
+    StudioListRecentProjects: async () => [],
+    StudioGetEditorPreferences: async () => ({ extensionsDirectory: '/personal', managedDirectory: '/managed' }),
+    StudioSaveEditorPreferences: directory => { calls.push(directory); return new Promise(resolve => { finish = () => resolve({ extensionsDirectory: directory, managedDirectory: '/managed' }) }) },
+  }
+  const c = await preferencesComponent(host)
+  try {
+    await c.session.refresh()
+    await c.loadEditorPreferences()
+    assert.equal(c.extensionsDirectory, '/personal')
+    c.extensionsDirectory = ' /another folder '
+    const first = c.saveEditorPreferences(), second = c.saveEditorPreferences()
+    assert.deepEqual(calls, ['/another folder'])
+    finish(); await Promise.all([first, second])
+    assert.equal(c.extensionsDirectory, '/another folder')
+    host.StudioSaveEditorPreferences = async () => { throw new Error('Read-only directory') }
+    await c.saveEditorPreferences()
+    assert.match(c.extensionsError, /Read-only directory/)
+    host.StudioSaveEditorPreferences = async directory => { calls.push(directory); return { extensionsDirectory: directory, managedDirectory: '/managed' } }
+    c.extensionsDirectory = ''
+    await c.saveEditorPreferences()
+    assert.equal(calls.at(-1), '')
+    assert.equal(c.extensionsError, '')
+  } finally { c.$destroy(); globalThis.window = previous }
+})
+
+test('remote Studio never reads or changes native extensions folders', async () => {
+  const previous = globalThis.window
+  const c = await preferencesComponent({
+    StudioGetStatus: async () => ({ state: 'installed', remote: true }),
+    StudioListRecentProjects: async () => [],
+    StudioGetEditorPreferences: () => { throw new Error('native preferences requested') },
+    StudioSaveEditorPreferences: () => { throw new Error('native preferences changed') },
+  })
+  try {
+    await c.session.refresh()
+    await c.loadEditorPreferences()
+    await c.saveEditorPreferences()
+    assert.equal(c.extensionsError, '')
+  } finally { c.$destroy(); globalThis.window = previous }
+})

@@ -12,9 +12,11 @@
   let showOpen = false
   let preparing = false
   let disposed = false
+  let extensionsDirectory = '', managedExtensionsDirectory = '', extensionsError = ''
+  let extensionsLoading = true, extensionsSaving = false
   let form = { workspacePath: '', cli: 'praimate-code', model: '', agentID: '', tools: 'edits' }
 
-  $: busy = preparing || !!state.operation || !!state.openingPath
+  $: busy = preparing || extensionsSaving || !!state.operation || !!state.openingPath
   $: refreshing = state.loadingStatus || state.loadingProjects
   $: statusLabel = state.statusError ? 'Check failed' : state.loadingStatus ? 'Checking…' : ({
     installed: 'Ready', update_available: 'Integration needs refresh', broken: 'Needs repair', not_installed: 'Setup needed',
@@ -25,7 +27,7 @@
 
   // Reactive button state updates on the next render. Check the live values
   // as well so two events in the same tick cannot open duplicate dialogs.
-  function isBusy() { return preparing || state.operation || state.openingPath }
+  function isBusy() { return preparing || extensionsSaving || state.operation || state.openingPath }
   function closeDialog() { if (!isBusy()) showOpen = false }
 
   function openDialog() {
@@ -82,7 +84,42 @@
     } finally { preparing = false }
   }
 
-  onMount(() => { session.refresh() })
+  async function loadEditorPreferences() {
+    if (disposed || state.status?.remote) { extensionsLoading = false; return }
+    try {
+      const prefs = await api.studioGetEditorPreferences()
+      if (!disposed) { extensionsDirectory = prefs.extensionsDirectory || ''; managedExtensionsDirectory = prefs.managedDirectory || ''; extensionsError = '' }
+    } catch (error) { if (!disposed) extensionsError = String(error) }
+    finally { extensionsLoading = false }
+  }
+
+  async function pickExtensionsDirectory() {
+    if (isBusy() || extensionsLoading) return
+    preparing = true
+    try {
+      const folder = await api.pickFolder()
+      if (!disposed && folder) extensionsDirectory = folder
+    } catch (error) { if (!disposed) extensionsError = String(error) }
+    finally { preparing = false }
+  }
+
+  async function saveEditorPreferences() {
+    if (isBusy() || extensionsLoading || state.status?.remote) return
+    extensionsSaving = true
+    extensionsError = ''
+    try {
+      const prefs = await api.studioSaveEditorPreferences(extensionsDirectory.trim())
+      if (!disposed) {
+        extensionsDirectory = prefs.extensionsDirectory || ''
+        managedExtensionsDirectory = prefs.managedDirectory || ''
+        await session.refresh()
+        if (!disposed) showToast({ title: 'Studio extensions saved', message: 'New Studio windows will use this extensions folder.', page: 'studio' })
+      }
+    } catch (error) { if (!disposed) extensionsError = String(error) }
+    finally { extensionsSaving = false }
+  }
+
+  onMount(() => { session.refresh().then(loadEditorPreferences) })
   onDestroy(() => { disposed = true; session.dispose() })
 </script>
 
@@ -146,6 +183,17 @@
         </div>
       {:else}<p class="card-sub" role="status">Checking the editor environment…</p>{/if}
       {#if state.operation}<p class="card-sub" role="status">{state.operation === 'install' ? 'Setting up Studio…' : state.operation === 'repair' ? 'Repairing Studio…' : 'Updating integration…'}</p>{/if}
+      {#if !state.status?.remote}
+        <fieldset class="extensions-settings" disabled={busy || extensionsLoading}>
+          <legend>Extensions folder</legend>
+          <p class="card-sub">Use an existing VS Code / VSCodium extensions folder to load your personal extensions. Leave blank for PrAImate's managed folder. Studio settings and history stay private.</p>
+          <label class="lbl" for="studio-extensions">Existing extensions directory</label>
+          <div class="folder-row"><input id="studio-extensions" class="field mono" bind:value={extensionsDirectory} placeholder={managedExtensionsDirectory || 'Managed Studio extensions'} /><button class="btn" type="button" on:click={pickExtensionsDirectory}>Browse…</button></div>
+          <p class="card-sub">PrAImate installs or refreshes its integration in the selected folder. Other extensions are preserved. Existing windows keep their current extensions.</p>
+          <div class="toolbar"><button class="btn primary" type="button" on:click={saveEditorPreferences}>{extensionsSaving ? 'Saving…' : 'Save and refresh'}</button><button class="btn" type="button" on:click={() => { extensionsDirectory = ''; saveEditorPreferences() }}>Use managed folder</button></div>
+        </fieldset>
+        {#if extensionsError}<p class="banner" role="alert">{extensionsError}</p>{/if}
+      {/if}
     </div>
   </details>
 </section>
@@ -187,6 +235,8 @@
 {/if}
 
 <style>
+  .extensions-settings { margin: 20px 0 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+  .extensions-settings legend { font-weight: 600; }
   .studio-heading, .section-heading, .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .studio-heading { align-items: flex-start; margin-bottom: 26px; }
   .studio-heading .subtitle { margin-bottom: 0; max-width: 65ch; }

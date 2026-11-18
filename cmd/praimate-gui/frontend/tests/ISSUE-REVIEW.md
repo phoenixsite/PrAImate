@@ -33,3 +33,9 @@ tabs, and review/merge actions (including all-rejected results). It uses the sam
 environment overrides and saves screenshots in
 `/tmp/praimate-worker-review-browser` by default. Run the browser checks
 sequentially: Firefox permits one active BiDi session.
+
+The Studio extensions controls can be checked with
+`BIDI_URL=ws://127.0.0.1:9235/session REVIEW_TEST_URL=http://127.0.0.1:5188/tests/fixtures/issue-review.html node tests/studio-extensions.mjs`.
+This checks both themes, mobile/desktop widths, saving a personal extensions
+folder and restoring the managed folder. The default ports for this script are
+9240 (Firefox) and 5190 (Vite); use the overrides above to reuse the same servers.

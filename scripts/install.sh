@@ -540,6 +540,10 @@ install_from_release() {
   local extracted="$tmp/$TRIPLET"
   [[ -d "$extracted" ]] || { c_red "unexpected archive layout under $tmp"; exit 1; }
   validate_bundle_edition "$extracted"
+  # `extracted` is local to this function; keep the icon path for
+  # create_shortcuts, which runs at global scope before the EXIT trap
+  # removes $tmp. Without this, release installs got no Icon= entry.
+  [[ -f "$extracted/praimate.png" ]] && BUNDLE_ICON_SRC="$extracted/praimate.png"
 
   step "Installing to $DEST"
   $SUDO install -m 0755 "$extracted/praimate" "$DEST/praimate"
@@ -756,13 +760,15 @@ create_shortcuts() {
       [[ "$data_home" = /* ]] || data_home="$HOME/.local/share"
       local apps="$data_home/applications"
       mkdir -p "$apps"
-      local icon_line=""
+      # Always reference the themed name: the GUI also installs praimate.png
+      # under hicolor on startup, so the entry resolves even if no icon file
+      # was available to this installer.
+      local icon_line="Icon=praimate"
       if [[ -n "$icon_src" && -f "$icon_src" ]]; then
         mkdir -p "$data_home/icons" "$data_home/icons/hicolor/512x512/apps" "$data_home/pixmaps"
         cp -f "$icon_src" "$data_home/icons/praimate.png" 2>/dev/null || true
         cp -f "$icon_src" "$data_home/icons/hicolor/512x512/apps/praimate.png" 2>/dev/null || true
         cp -f "$icon_src" "$data_home/pixmaps/praimate.png" 2>/dev/null || true
-        icon_line="Icon=praimate"
       fi
 
       # Core startup imports managed and common CLI paths, including nvm.
@@ -885,7 +891,7 @@ PLIST
   esac
 }
 ICON_SRC=""
-[[ -n "${extracted:-}" && -f "${extracted:-}/praimate.png" ]] && ICON_SRC="$extracted/praimate.png"
+[[ -n "${BUNDLE_ICON_SRC:-}" && -f "${BUNDLE_ICON_SRC:-}" ]] && ICON_SRC="$BUNDLE_ICON_SRC"
 [[ -z "$ICON_SRC" && -n "${LOCAL_BINS:-}" && -f "${LOCAL_BINS:-}/praimate.png" ]] && ICON_SRC="$LOCAL_BINS/praimate.png"
 [[ -z "$ICON_SRC" && -n "${SOURCE_DIR:-}" && -f "${SOURCE_DIR:-}/cmd/praimate-gui/frontend/src/assets/monke-icon.png" ]] && ICON_SRC="$SOURCE_DIR/cmd/praimate-gui/frontend/src/assets/monke-icon.png"
 create_shortcuts "$ICON_SRC"

@@ -103,6 +103,12 @@ func studioEnvironment(base []string, overrides map[string]string) []string {
 	return out
 }
 
+// Generated launchers must treat directory names as data, including quotes and
+// shell substitutions in a user-selected extensions path.
+func quoteEditorShellArgument(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 // Keep startup diagnostics bounded while a long-lived editor runs. Read only
 // after Wait returns, when exec has finished copying the stderr pipe.
 type editorStartupOutput struct{ data []byte }

@@ -10,6 +10,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,9 +47,14 @@ type Asset struct {
 	Size               int64  `json:"size"`
 }
 
-// httpClient is shared so callers can swap it in tests. Default timeout
-// is generous because release archives can be tens of MB.
+// Metadata requests have a total timeout. Downloads reuse its transport and
+// redirect policy with a separate inactivity deadline instead.
 var httpClient = &http.Client{Timeout: 60 * time.Second}
+
+// downloadIdleTimeout is the longest a release download may go without
+// receiving any bytes (including waiting for response headers). It is an
+// inactivity limit, not a limit on total download time.
+var downloadIdleTimeout = 60 * time.Second
 
 // LatestURL is the GitHub API endpoint queried for the most recent
 // release of the configured repo.
@@ -349,11 +355,32 @@ func downloadToTemp(asset *Asset) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "praimate-updater/"+version.Current)
-	resp, err := httpClient.Do(req)
+
+	// httpClient.Timeout caps the whole exchange, body included, which would
+	// abort a healthy but slow download. Use a copy without that total limit
+	// and enforce an idle deadline: the request is cancelled only when no
+	// bytes arrive for downloadIdleTimeout.
+	client := *httpClient
+	client.Timeout = 0
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+	idle := time.AfterFunc(downloadIdleTimeout, cancel)
+	defer idle.Stop()
+	idleErr := func(err error) error {
+		if ctx.Err() != nil {
+			return fmt.Errorf("download: no data received for %s: %w", downloadIdleTimeout, err)
+		}
+		return fmt.Errorf("download: %w", err)
+	}
+
+	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		return "", fmt.Errorf("download: %w", err)
+		return "", idleErr(err)
 	}
 	defer resp.Body.Close()
+	// Response headers are progress too; give the first body read a full idle
+	// interval even if connecting and receiving headers took most of the limit.
+	idle.Reset(downloadIdleTimeout)
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("download: HTTP %d", resp.StatusCode)
 	}
@@ -362,7 +389,9 @@ func downloadToTemp(asset *Asset) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	body := &idleReader{r: resp.Body, timer: idle, d: downloadIdleTimeout}
+	if _, err := io.Copy(f, body); err != nil {
+		err = idleErr(err)
 		f.Close()
 		os.Remove(f.Name())
 		return "", err
@@ -372,6 +401,22 @@ func downloadToTemp(asset *Asset) (string, error) {
 		return "", err
 	}
 	return f.Name(), nil
+}
+
+// idleReader re-arms the idle timer every time bytes are read, so the
+// download is only cancelled after d elapses with no data.
+type idleReader struct {
+	r     io.Reader
+	timer *time.Timer
+	d     time.Duration
+}
+
+func (ir *idleReader) Read(p []byte) (int, error) {
+	n, err := ir.r.Read(p)
+	if n > 0 {
+		ir.timer.Reset(ir.d)
+	}
+	return n, err
 }
 
 // extractBinary pulls just the praimate executable out of the archive,

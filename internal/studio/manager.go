@@ -64,13 +64,19 @@ func SocketPath() (string, error) {
 	return filepath.Join(root, "run", "praimate.sock"), nil
 }
 
-// ExtensionsDir returns <config>/praimate/tools/praimate-studio/extensions.
+// ExtensionsDir uses the managed directory unless the user selects their own.
 func ExtensionsDir() (string, error) {
-	sDir, err := StudioDir()
+	prefs, err := EditorExtensionPreferences()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(sDir, "extensions"), nil
+	if prefs.ExtensionsDirectory != "" {
+		if info, err := os.Stat(prefs.ExtensionsDirectory); err != nil || !info.IsDir() {
+			return "", errors.New("the configured Studio extensions directory is unavailable; choose another folder or restore the managed directory")
+		}
+		return prefs.ExtensionsDirectory, nil
+	}
+	return prefs.ManagedDirectory, nil
 }
 
 // UserDataDir returns <config>/praimate/tools/praimate-studio/data.
@@ -79,7 +85,11 @@ func UserDataDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(sDir, "data"), nil
+	prefs, err := EditorExtensionPreferences()
+	if err != nil {
+		return "", err
+	}
+	return editorDataDirectory(sDir, prefs.ExtensionsDirectory), nil
 }
 
 // DetectBinary finds the Code-OSS / Studio binary to use.
@@ -199,12 +209,21 @@ func managedCandidates(root, executable string) []string {
 
 // GetStatus checks and returns the status of PrAImate Studio.
 func (m *Manager) GetStatus(ctx context.Context) (*StudioStatus, error) {
+	editorProfileMu.Lock()
+	defer editorProfileMu.Unlock()
+	return m.getStatus(ctx)
+}
+
+func (m *Manager) getStatus(ctx context.Context) (*StudioStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	sockPath, _ := SocketPath()
 	binPath, flavor := DetectBinary()
-	extDir, _ := ExtensionsDir()
+	extDir, err := ExtensionsDir()
+	if err != nil {
+		return nil, err
+	}
 	praimateExtDir, registered, err := registeredExtension(extDir)
 	if err != nil {
 		return nil, err
@@ -262,6 +281,12 @@ func (m *Manager) GetStatus(ctx context.Context) (*StudioStatus, error) {
 
 // Install sets up Studio directories, provisions the built-in extension, and downloads Code-OSS if needed.
 func (m *Manager) Install(ctx context.Context) (*StudioStatus, error) {
+	editorProfileMu.Lock()
+	defer editorProfileMu.Unlock()
+	return m.install(ctx)
+}
+
+func (m *Manager) install(ctx context.Context) (*StudioStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -313,9 +338,9 @@ func (m *Manager) Install(ctx context.Context) (*StudioStatus, error) {
 		binPath, _ = DetectBinary()
 		script := fmt.Sprintf(`#!/usr/bin/env bash
 # PrAImate Studio Launcher
-EXT_DIR="%s"
-DATA_DIR="%s"
-TARGET="%s"
+EXT_DIR=%s
+DATA_DIR=%s
+TARGET=%s
 if [ -z "$TARGET" ]; then
     if command -v code-oss >/dev/null 2>&1; then TARGET="code-oss";
     elif command -v codium >/dev/null 2>&1; then TARGET="codium";
@@ -329,7 +354,7 @@ else
     echo "No Code-OSS found. Run 'praimate studio install' to download." >&2
     exit 1
 fi
-`, extDir, dataDir, binPath)
+`, quoteEditorShellArgument(extDir), quoteEditorShellArgument(dataDir), quoteEditorShellArgument(binPath))
 		if err := os.WriteFile(wrapperPath, []byte(script), 0755); err != nil {
 			return nil, fmt.Errorf("write Studio launcher: %w", err)
 		}
@@ -340,7 +365,7 @@ fi
 	_ = os.MkdirAll(filepath.Join(root, "run"), 0755)
 
 	m.mu.Unlock()
-	status, err := m.GetStatus(ctx)
+	status, err := m.getStatus(ctx)
 	m.mu.Lock()
 	return status, err
 }
@@ -398,6 +423,8 @@ func (m *Manager) Repair(ctx context.Context) (*StudioStatus, error) {
 
 // Launch opens a project in PrAImate Studio.
 func (m *Manager) Launch(ctx context.Context, opts LaunchOptions) error {
+	editorProfileMu.Lock()
+	defer editorProfileMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
