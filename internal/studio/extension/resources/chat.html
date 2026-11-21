@@ -231,7 +231,7 @@ function renderWorkerProfiles() {
     host.appendChild(box);
   }
 }
-let workerBoardView = null;
+let workerBoardView = null, workerBoardDeferred = false;
 let workerFocus = '', workerAttempt = '', workerConsoleTab = 'activity', workerHistoryKey = '', workerHistory = [], workerHistoryBefore = 0, workerHistoryMore = false, workerHistoryBusy = false, workerPreviewKey = '', workerPreview = null, workerPreviewBusy = false, workerFollow = true, workerSearch = '';
 function workerAttempts() {
   if(workerSnapshot?.attempts?.length)return workerSnapshot.attempts;
@@ -301,6 +301,10 @@ function renderWorkerBoard() {
   // The poll repaints on every streamed event. Keep the toolbar and board elements (and so their scroll
   // position, focus and hover) when nothing they show has changed, and only swap the console.
   const signature=workerBoardSignature(cards),reuse=!!(workerBoardView && workerBoardView.root===root && workerBoardView.run===workerSelected && workerBoardView.signature===signature);
+  // A native <select> popup closes when its element is replaced. Hold streaming-only repaints while the attempt picker has focus,
+  // but repaint as soon as the board state changes (a task finishes, a new attempt starts) so the picker never goes stale.
+  if(reuse && document.activeElement?.matches?.('.worker-console select')){workerBoardDeferred=true;return;}
+  workerBoardDeferred=false;
   let toolbar,search,board;
   if(reuse){({toolbar,search,board}=workerBoardView);}
   else {
@@ -326,7 +330,7 @@ function renderWorkerBoard() {
   const attempts=workerAttempts().filter(a=>card.task?a.taskID===card.task.id:!a.taskID && a.tier===card.tier),current=attempts.find(a=>a.id===workerAttempt) || attempts.at(-1);
   workerAttempt=current?.id || '';
   const consolePanel=element('section','','worker-console'),head=element('div','','toolbar');head.appendChild(element('strong',card.title+' · '+(current?((current.cli || 'Local')+' / '+(current.model || 'Backend default')+' · '+current.status):card.route)));
-  if(attempts.length){const select=document.createElement('select');select.setAttribute('aria-label','Execution attempt');attempts.forEach((a,i)=>{const o=element('option','Attempt '+(i+1)+' · '+a.status+' · '+(a.cli || 'Local')+' / '+(a.model || 'Default'));o.value=a.id;select.appendChild(o);});select.value=workerAttempt;select.addEventListener('change',()=>{workerAttempt=select.value;workerFollow=false;renderWorkerBoard();});head.appendChild(select);}
+  if(attempts.length){const select=document.createElement('select');select.setAttribute('aria-label','Execution attempt');attempts.forEach((a,i)=>{const o=element('option','Attempt '+(i+1)+' · '+a.status+' · '+(a.cli || 'Local')+' / '+(a.model || 'Default'));o.value=a.id;select.appendChild(o);});select.value=workerAttempt;select.addEventListener('change',()=>{workerAttempt=select.value;workerFollow=false;select.blur?.();renderWorkerBoard();});select.addEventListener('blur',()=>{if(workerBoardDeferred)setTimeout(renderWorkerBoard,0);});select.addEventListener('keydown',e=>{if(e.key==='Escape')select.blur?.();});head.appendChild(select);}
   consolePanel.appendChild(head);
   const active=['running','planning','merging'].includes(workerSnapshot.status);
   if(!active && ['failed','blocked','cancelled'].includes(card.task?.status)) {if(card.task.failurePhase==='dependencies')head.appendChild(button('Resolve conflicts with worker',()=>graphAction('workerGraphResolve',{taskID:card.task.id})));head.appendChild(button(card.task.failurePhase==='dependencies'?'Continue after manual resolution':'Continue with existing changes',()=>graphAction('workerGraphRetry',{taskID:card.task.id})));head.appendChild(button('Start over…',()=>graphAction('workerGraphReset',{taskID:card.task.id})));}
