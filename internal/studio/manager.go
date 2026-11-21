@@ -499,7 +499,23 @@ func (m *Manager) Launch(ctx context.Context, opts LaunchOptions) error {
 // the shared history file from concurrent launches.
 var recentProjectsMu sync.Mutex
 
-func readRecentProjects(file string) ([]string, error) {
+// RecentProject is a Studio history entry. Configured distinguishes a saved
+// launch configuration from legacy path-only entries, because an empty Tools
+// value is a valid permission level.
+type RecentProject struct {
+	Path       string `json:"path"`
+	CLI        string `json:"cli,omitempty"`
+	Model      string `json:"model,omitempty"`
+	AgentID    string `json:"agentID,omitempty"`
+	Tools      string `json:"tools,omitempty"`
+	Configured bool   `json:"configured,omitempty"`
+}
+
+const maxRecentProjects = 20
+
+// readRecentProjects accepts both the legacy list of paths and the current
+// list of entries so existing history survives the format change.
+func readRecentProjects(file string) ([]RecentProject, error) {
 	data, err := os.ReadFile(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -507,16 +523,41 @@ func readRecentProjects(file string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read Studio history: %w", err)
 	}
-	var projects []string
-	if err := json.Unmarshal(data, &projects); err != nil {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("decode Studio history: %w", err)
+	}
+	projects := make([]RecentProject, 0, len(raw))
+	for _, item := range raw {
+		var path string
+		if err := json.Unmarshal(item, &path); err == nil {
+			projects = append(projects, RecentProject{Path: path})
+			continue
+		}
+		var entry RecentProject
+		if err := json.Unmarshal(item, &entry); err != nil {
+			return nil, fmt.Errorf("decode Studio history: %w", err)
+		}
+		projects = append(projects, entry)
 	}
 	return projects, nil
 }
 
-// SaveRecentProject records a project workspace as recently opened in Studio.
+// SaveRecentProject records a project workspace as recently opened in Studio,
+// keeping any launch configuration already saved for it.
 func (m *Manager) SaveRecentProject(workspacePath string) error {
-	if workspacePath == "" {
+	return m.saveRecentProject(RecentProject{Path: workspacePath}, false)
+}
+
+// SaveRecentProjectConfig records a workspace together with the CLI, model,
+// agent and tools used to open it, so it can be reopened the same way.
+func (m *Manager) SaveRecentProjectConfig(entry RecentProject) error {
+	entry.Configured = true
+	return m.saveRecentProject(entry, true)
+}
+
+func (m *Manager) saveRecentProject(entry RecentProject, replaceConfig bool) error {
+	if entry.Path == "" {
 		return nil
 	}
 	sDir, err := StudioDir()
@@ -533,15 +574,27 @@ func (m *Manager) SaveRecentProject(workspacePath string) error {
 	if err != nil {
 		return err
 	}
-	var updated []string
-	clean := filepath.Clean(workspacePath)
-	updated = append(updated, clean)
+	entry.Path = filepath.Clean(entry.Path)
+	updated := []RecentProject{entry}
 	for _, r := range recents {
-		if filepath.Clean(r) != clean && len(updated) < 20 {
+		if filepath.Clean(r.Path) == entry.Path {
+			if !replaceConfig && r.Configured {
+				r.Path = entry.Path
+				updated[0] = r
+			}
+			continue
+		}
+		if len(updated) < maxRecentProjects {
 			updated = append(updated, r)
 		}
 	}
-	data, _ := json.MarshalIndent(updated, "", "  ")
+	return writeRecentProjects(sDir, recentsFile, updated)
+}
+
+// writeRecentProjects replaces the history atomically. Callers hold
+// recentProjectsMu.
+func writeRecentProjects(sDir, recentsFile string, entries []RecentProject) error {
+	data, _ := json.MarshalIndent(entries, "", "  ")
 	f, err := os.CreateTemp(sDir, ".recent-projects-*")
 	if err != nil {
 		return err
@@ -561,25 +614,38 @@ func (m *Manager) SaveRecentProject(workspacePath string) error {
 	return os.Rename(f.Name(), recentsFile)
 }
 
-// ListRecentProjects returns the list of recently opened Studio projects.
+// ListRecentProjects returns the paths of recently opened Studio projects.
 func (m *Manager) ListRecentProjects() ([]string, error) {
+	entries, err := m.ListRecentProjectEntries()
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+	}
+	return paths, nil
+}
+
+// ListRecentProjectEntries returns existing recent project directories with
+// their saved launch configuration, most recent first.
+func (m *Manager) ListRecentProjectEntries() ([]RecentProject, error) {
 	sDir, err := StudioDir()
 	if err != nil {
 		return nil, err
 	}
-	recentsFile := filepath.Join(sDir, "recent_projects.json")
-	recents, err := readRecentProjects(recentsFile)
+	recents, err := readRecentProjects(filepath.Join(sDir, "recent_projects.json"))
 	if err != nil {
 		return nil, err
 	}
-	var existing []string
+	existing := []RecentProject{}
 	seen := make(map[string]bool)
 	for _, r := range recents {
-		if info, err := os.Stat(r); err == nil && info.IsDir() && !seen[r] {
-			seen[r] = true
+		if info, err := os.Stat(r.Path); err == nil && info.IsDir() && !seen[r.Path] {
+			seen[r.Path] = true
 			existing = append(existing, r)
 		}
-		if len(existing) == 20 {
+		if len(existing) == maxRecentProjects {
 			break
 		}
 	}

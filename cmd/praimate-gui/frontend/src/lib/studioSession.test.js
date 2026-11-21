@@ -37,7 +37,7 @@ test('overview never probes CLIs and shows projects while status is still pendin
   const session = createStudioSession(fixture({ studioGetStatus: () => status.promise, listCLIs: () => { probes++; return new Promise(() => {}) } }))
   const load = session.refresh()
   await Promise.resolve()
-  assert.deepEqual(session.state.projects, ['/tmp/project'])
+  assert.deepEqual(session.state.projects, [{ path: '/tmp/project', cli: '', model: '', agentID: '', tools: '', configured: false }])
   assert.equal(session.state.loadingProjects, false)
   assert.equal(session.state.loadingStatus, true)
   assert.equal(probes, 0)
@@ -93,7 +93,7 @@ test('resource errors stay visible and preserve independently loaded content', a
   await session.refresh()
   assert.match(session.state.statusError, /status unavailable/)
   assert.equal(session.state.status, null)
-  assert.deepEqual(session.state.projects, ['/tmp/project'])
+  assert.deepEqual(session.state.projects, [{ path: '/tmp/project', cli: '', model: '', agentID: '', tools: '', configured: false }])
   assert.equal(session.state.loadingStatus, false)
 })
 
@@ -150,7 +150,7 @@ test('launch preserves configuration, rejects duplicate clicks and separates his
   assert.deepEqual(calls, [[config.workspacePath, config.cli, config.model, config.agentID, config.tools]])
   assert.equal(session.state.error, '')
   assert.match(session.state.projectsError, /history unavailable/)
-  assert.deepEqual(session.state.projects, ['/tmp/project'])
+  assert.deepEqual(session.state.projects, [{ path: '/tmp/project', cli: '', model: '', agentID: '', tools: '', configured: false }])
   assert.equal(session.state.openingPath, '')
 })
 
@@ -187,3 +187,16 @@ test('project names handle Linux, Windows and root folders', () => {
   assert.equal(studioProjectName('C:\\Projects\\Example\\'), 'Example')
   assert.equal(studioProjectName('/'), '/')
 })
+
+test('recent project entries keep their saved launch configuration', async () => {
+  const { normalizeRecentProjects } = await import('./studioSession.js')
+  assert.deepEqual(normalizeRecentProjects([
+    { path: '/tmp/a', cli: 'claude', model: 'sonnet', agentID: 'rev', tools: '', configured: true },
+    '/tmp/legacy', { path: '' }, null,
+  ]), [
+    { path: '/tmp/a', cli: 'claude', model: 'sonnet', agentID: 'rev', tools: '', configured: true },
+    { path: '/tmp/legacy', cli: '', model: '', agentID: '', tools: '', configured: false },
+  ])
+  assert.deepEqual(normalizeRecentProjects(null), [])
+})
+

@@ -98,3 +98,44 @@ test('remote Studio never reads or changes native extensions folders', async () 
     assert.equal(c.extensionsError, '')
   } finally { c.$destroy(); globalThis.window = previous }
 })
+
+test('recent projects reopen with their saved configuration and confirm full access', async () => {
+  const source = await readFile(new URL('./Studio.svelte', import.meta.url), 'utf8')
+  const script = source.match(/<script>([\s\S]*?)<\/script>/)[1]
+    .replace('const session =', 'export const session =')
+    .replace('function openRecent(', 'export function openRecent(')
+  const { js } = compile(`<script>${script}</script>`, { generate: 'dom', accessors: true })
+  const code = js.code.replace(/(["'])(svelte(?:\/[^"']+)?|\.\.\/lib\/[^"']+)\1/g, (_, quote, name) =>
+    JSON.stringify(name.startsWith('svelte') ? import.meta.resolve(name) : new URL(name, import.meta.url).href))
+  const { default: Studio } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+  const previous = globalThis.window
+  const launches = []
+  globalThis.window = { go: { main: { App: {
+    StudioGetStatus: async () => ({ state: 'installed' }),
+    StudioListRecentProjects: async () => [],
+    StudioOpenProject: async (...args) => { launches.push(args) },
+  } } } }
+  const confirmations = []
+  const unsubscribe = confirmModal.subscribe(value => { if (value) confirmations.push(value) })
+  const component = new Studio({ target: {} })
+  try {
+    await component.session.refresh()
+    component.openRecent({ path: '/tmp/saved', cli: 'claude', model: 'sonnet', agentID: 'rev', tools: 'edits', configured: true })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.deepEqual(launches, [['/tmp/saved', 'claude', 'sonnet', 'rev', 'edits']])
+    assert.equal(confirmations.length, 0)
+
+    component.openRecent({ path: '/tmp/full', cli: 'codex', model: '', agentID: '', tools: 'full', configured: true })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(confirmations.length, 1)
+    assert.equal(launches.length, 1, 'full access must not launch before confirmation')
+    confirmations[0].resolve(true)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.deepEqual(launches[1], ['/tmp/full', 'codex', '', '', 'full'])
+  } finally {
+    for (const confirmation of confirmations) confirmation.resolve(false)
+    component.$destroy()
+    unsubscribe()
+    globalThis.window = previous
+  }
+})

@@ -60,12 +60,58 @@
     } finally { preparing = false }
   }
 
-  async function openProject(projectPath = form.workspacePath) {
+  function savedConfig(project) {
+    return { workspacePath: project.path, cli: project.cli || 'praimate-code', model: project.model, agentID: project.agentID, tools: project.tools }
+  }
+
+  function toolsLabel(cli, tools) {
+    return toolLevelsForCli(cli).find(level => level.id === tools)?.label || tools || 'Default'
+  }
+
+  function projectSummary(project) {
+    if (!project.configured) return 'Choose how to open'
+    const cli = state.clis.find(item => item.id === project.cli)?.label || project.cli || 'PrAImate Code'
+    return [cli, project.model || 'CLI default', toolsLabel(project.cli, project.tools)].join(' · ')
+  }
+
+  // Recent projects reopen with the configuration they were last opened with.
+  // Legacy path-only entries open the dialog prefilled instead of reusing the
+  // configuration of another project.
+  function openRecent(project) {
+    if (isBusy()) return
+    if (!project.configured) {
+      form = { ...form, workspacePath: project.path }
+      openDialog()
+      return
+    }
+    openProject(project.path, project)
+  }
+
+  // Edit the saved configuration of a recent project before opening it.
+  function configureRecent(project) {
+    if (isBusy()) return
+    if (project.configured) {
+      form = savedConfig(project)
+      form.tools = normalizeToolsForCli(form.cli, form.tools)
+    } else form = { ...form, workspacePath: project.path }
+    openDialog()
+  }
+
+  async function openProject(projectPath = form.workspacePath, saved = null) {
     if (isBusy() || state.loadingStatus || state.statusError || !state.status) return
     preparing = true
     // Snapshot the configuration before any confirmation or native dialog.
-    const config = { ...form, workspacePath: projectPath.trim() }
+    const config = saved ? { ...savedConfig(saved), workspacePath: projectPath.trim() } : { ...form, workspacePath: projectPath.trim() }
     try {
+      // Saved permissions that auto-approve tools are never reapplied silently.
+      if (saved && config.tools === 'full') {
+        const accepted = await showConfirm({
+          title: 'Open with full tool access',
+          message: `${studioProjectName(config.workspacePath)} was last opened with tools approved automatically. Open it again with the same permissions?`,
+          confirmLabel: 'Open with full access', tone: 'primary',
+        })
+        if (!accepted || disposed) return
+      }
       if (['not_installed', 'broken'].includes(state.status.state)) {
         const repair = state.status.state === 'broken'
         const accepted = await showConfirm({
@@ -142,11 +188,14 @@
       <div class="card empty-state" role="status"><p>Loading recent projects…</p></div>
     {:else if state.projects.length}
       <div class="project-grid">
-        {#each state.projects as projectPath (projectPath)}
-          <button class="card project-card" disabled={busy || state.loadingStatus || !!state.statusError || !state.status} on:click={() => openProject(projectPath)} aria-label={`Open ${studioProjectName(projectPath)} in Studio`} title={projectPath}>
-            <svg class="project-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>
-            <span class="project-info"><strong>{studioProjectName(projectPath)}</strong><span class="project-path">{projectPath}</span><span class="project-action">{state.openingPath === projectPath ? 'Opening…' : 'Open in Studio'}</span></span>
-          </button>
+        {#each state.projects as project (project.path)}
+          <div class="project-entry">
+            <button class="card project-card" disabled={busy || state.loadingStatus || !!state.statusError || !state.status} on:click={() => openRecent(project)} aria-label={`Open ${studioProjectName(project.path)} in Studio`} title={project.path}>
+              <svg class="project-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>
+              <span class="project-info"><strong>{studioProjectName(project.path)}</strong><span class="project-path">{project.path}</span><span class="project-config">{projectSummary(project)}</span><span class="project-action">{state.openingPath === project.path ? 'Opening…' : project.configured ? 'Open in Studio' : 'Configure and open'}</span></span>
+            </button>
+            <button class="btn sm project-configure" type="button" disabled={busy} on:click={() => configureRecent(project)} aria-label={`Open ${studioProjectName(project.path)} with another configuration`}>Change…</button>
+          </div>
         {/each}
       </div>
     {:else if !state.projectsError}
@@ -249,7 +298,11 @@
   .project-icon, .empty-icon { width: 26px; height: 26px; fill: none; stroke: var(--accent); stroke-width: 1.5; flex: none; }
   .project-info { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .project-info strong, .project-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .project-path { color: var(--text-dim); font-size: 12px; }
+  .project-path, .project-config { color: var(--text-dim); font-size: 12px; }
+  .project-config { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project-entry { position: relative; min-width: 0; display: flex; }
+  .project-entry .project-card { flex: 1; padding-right: 88px; }
+  .project-configure { position: absolute; top: 12px; right: 12px; }
   .project-action { font-size: 12px; color: var(--accent); margin-top: 5px; }
   .empty-state { text-align: center; padding: 36px 20px; }
   .empty-state h3 { margin: 12px 0 6px; font-size: 16px; }

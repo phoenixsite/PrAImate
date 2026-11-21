@@ -26,7 +26,7 @@ export function createStudioSession(api, changed = () => {}) {
       }).catch(error => {
         if (seq === statusSeq) patch({ statusError: String(error), loadingStatus: false })
       }),
-      api.studioListRecentProjects().then(projects => patch({ projects: projects || [], loadingProjects: false }))
+      api.studioListRecentProjects().then(projects => patch({ projects: normalizeRecentProjects(projects), loadingProjects: false }))
         .catch(error => patch({ projectsError: String(error), loadingProjects: false })),
     ]).finally(() => { overviewFlight = null })
     return overviewFlight
@@ -99,7 +99,7 @@ export function createStudioSession(api, changed = () => {}) {
       if (!disposed) {
         try { patch({ status: await api.studioGetStatus(), statusError: '', loadingStatus: false }) }
         catch (error) { patch({ statusError: String(error), loadingStatus: false }) }
-        try { patch({ projects: (await api.studioListRecentProjects()) || [], projectsError: '' }) }
+        try { patch({ projects: normalizeRecentProjects(await api.studioListRecentProjects()), projectsError: '' }) }
         catch (error) { patch({ projectsError: String(error) }) }
       }
       return !disposed
@@ -112,6 +112,15 @@ export function createStudioSession(api, changed = () => {}) {
   return { get state() { return state }, refresh, loadChoices, loadModels, maintain, launch,
     dispose() { disposed = true; ++statusSeq; ++modelSeq },
   }
+}
+
+// Older backends return plain paths. Those entries are unconfigured, so the
+// UI asks for a configuration instead of guessing one.
+export function normalizeRecentProjects(projects) {
+  return (projects || []).map(project => typeof project === 'string'
+    ? { path: project, cli: '', model: '', agentID: '', tools: '', configured: false }
+    : { path: project?.path || '', cli: project?.cli || '', model: project?.model || '', agentID: project?.agentID || '', tools: project?.tools || '', configured: !!project?.configured })
+    .filter(project => project.path)
 }
 
 export function studioProjectName(path) {

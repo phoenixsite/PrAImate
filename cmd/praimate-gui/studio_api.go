@@ -66,14 +66,16 @@ func (a *App) StudioOpenProject(workspacePath, cli, model, agentID, tools string
 	}); err != nil {
 		return err
 	}
-	if err := mgr.SaveRecentProject(abs); err != nil {
+	if err := mgr.SaveRecentProjectConfig(studio.RecentProject{Path: abs, CLI: cli, Model: model, AgentID: agentID, Tools: tools}); err != nil {
 		log.Printf("Studio opened, but recent project history could not be saved: %v", err)
 	}
 	return nil
 }
 
-// StudioListRecentProjects returns recent workspace folders opened in Studio.
-func (a *App) StudioListRecentProjects() ([]string, error) {
+// StudioListRecentProjects returns recent workspace folders opened in Studio
+// with the configuration last used to open each one.
+func (a *App) StudioListRecentProjects() ([]studio.RecentProject, error) {
 	mgr := studio.NewManager(a.core)
-	return mgr.ListRecentProjects()
+	return mgr.ListRecentProjectEntries()
 }
+

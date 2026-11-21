@@ -87,7 +87,7 @@ func runStudio(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: launch studio: %v\n", err)
 		return 1
 	}
-	if err := mgr.SaveRecentProject(absPath); err != nil {
+	if err := mgr.SaveRecentProjectConfig(studio.RecentProject{Path: absPath, CLI: *cliFlag, Model: *modelFlag, AgentID: *agentFlag, Tools: *toolsFlag}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: Studio opened, but recent project history could not be saved: %v\n", err)
 	}
 
