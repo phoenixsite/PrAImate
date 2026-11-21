@@ -41,11 +41,9 @@ selection, downloads, first launch, remote connections and separate profiles.
 
 ## Supported systems
 
-- Linux amd64 (release archive)
+- Linux amd64 and arm64 / aarch64 (release archives)
 - Windows amd64 and arm64 (release archives)
 - macOS Intel / amd64 and Apple Silicon / arm64 (release archives)
-- Linux arm64 source builds where the required native WebKitGTK toolchain is
-  available
 
 - Android 8.0+ with a current System WebView (client APK; requires Server)
 

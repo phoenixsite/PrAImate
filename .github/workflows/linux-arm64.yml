@@ -1,0 +1,118 @@
+name: Add Linux ARM64 packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing published release to extend (for example v1.3.7)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-arm64-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Linux ARM64 from release source
+    runs-on: ubuntu-22.04-arm
+    outputs:
+      source: ${{ steps.source.outputs.sha }}
+      edition: ${{ steps.source.outputs.edition }}
+    steps:
+      - name: Checkout publication tools
+        uses: actions/checkout@v4
+        with:
+          path: ci
+      - name: Validate existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 ci/scripts/publish-linux-arm64.py --check-release "$RELEASE_TAG"
+      - name: Checkout original tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          path: source
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify publication contracts
+        run: python3 ci/scripts/publish-linux-arm64_test.py
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: latest
+          enable-cache: false
+      - name: Install native GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config zip
+      - name: Record source and validate native target
+        id: source
+        working-directory: source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test "$(go env GOOS)-$(go env GOARCH)" = linux-arm64
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if test -f internal/version/edition_server.go; then
+            echo edition=all >> "$GITHUB_OUTPUT"
+          else
+            echo edition=desktop >> "$GITHUB_OUTPUT"
+          fi
+          echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+      - name: Build and stage native packages
+        working-directory: source
+        env:
+          EDITIONS: ${{ steps.source.outputs.edition }}
+        run: |
+          bash scripts/build.sh --edition=desktop --with-code --with-graphify linux-arm64
+          mkdir -p ../arm64-artifacts
+          cp dist/praimate-linux-arm64.tar.gz dist/praimate-cli-linux-arm64 dist/praimate-code-linux-arm64 dist/praimate-graphify-linux-arm64 ../arm64-artifacts/
+          if test "$EDITIONS" = all; then
+            PRAIMATE_FRONTEND_READY=1 bash scripts/build.sh --edition=server --reuse-shared=dist linux-arm64
+            cp dist/server/praimate-server-linux-arm64.tar.gz ../arm64-artifacts/
+          fi
+          test "$(dist/linux-arm64/praimate-cli --version)" = "PrAImate CLI $VERSION"
+          python3 ../ci/scripts/publish-linux-arm64.py --verify-packages ../arm64-artifacts --edition "$EDITIONS"
+      - name: Verify native services
+        working-directory: source
+        run: go test ./internal/updater ./internal/installer ./internal/studio ./internal/serverboot
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-packages
+          path: arm64-artifacts/*
+          if-no-files-found: error
+
+  publish:
+    name: Append Linux ARM64 to existing release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-packages
+          path: arm64-artifacts
+      - name: Publish only ARM64 packages and merge checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source }}
+          EDITIONS: ${{ needs.build.outputs.edition }}
+        run: python3 scripts/publish-linux-arm64.py "$RELEASE_TAG" arm64-artifacts --source "$SOURCE_SHA" --edition "$EDITIONS"

@@ -8,9 +8,9 @@ Choose your product before downloading from the [combined release](https://githu
 | **Server** | The computer or VM that will run your work | Includes the GUI and a headless remote service. Browsers and Android control the same server-owned workspace. |
 | **Android preview** | Your phone or tablet | Connects to Server. Models, CLI processes, project files and jobs execute on the server. |
 
-Desktop and Server support Linux amd64, Windows amd64/arm64, and macOS
-Intel/Apple Silicon. Linux arm64 requires a source build on an appropriate native
-host. Android requires Android 8.0+ and a current Android System WebView; its
+Desktop and Server support Linux amd64/arm64, Windows amd64/arm64, and macOS
+Intel/Apple Silicon. Linux ARM64 packages require GTK 3 and WebKitGTK 4.1; the
+installer detects aarch64 automatically. Android requires Android 8.0+ and a current Android System WebView; its
 isolated Cloudflare Access login requires Android 9+.
 
 ## Desktop
@@ -177,6 +177,7 @@ contains both editions. For newer versions, select a compatible entry in
 | System | Desktop | Server |
 |---|---|---|
 | Linux amd64 | `praimate-linux-amd64.tar.gz` | `praimate-server-linux-amd64.tar.gz` |
+| Linux arm64 / aarch64 | `praimate-linux-arm64.tar.gz` | `praimate-server-linux-arm64.tar.gz` |
 | Windows amd64 | `praimate-windows-amd64.zip` | `praimate-server-windows-amd64.zip` |
 | Windows arm64 | `praimate-windows-arm64.zip` | `praimate-server-windows-arm64.zip` |
 | macOS Intel | `praimate-darwin-amd64.tar.gz` | `praimate-server-darwin-amd64.tar.gz` |

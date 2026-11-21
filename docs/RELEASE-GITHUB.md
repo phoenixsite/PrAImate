@@ -17,7 +17,7 @@ Keep these defaults aligned:
 - `scripts/build.ps1`
 
 The [release workflow](https://github.com/sPROFFEs/PrAImate/blob/main/.github/workflows/release.yml) runs on a pushed `v*`
-tag or manual dispatch. It builds Linux amd64, Windows amd64/arm64 and macOS
+tag or manual dispatch. It builds Linux amd64/arm64, Windows amd64/arm64 and macOS
 Intel and Apple Silicon on separate native runners, merges their artifacts, generates
 `SHA256SUMS`, and creates or updates the matching GitHub release. A push to
 `main` alone does not publish a release.
@@ -82,7 +82,8 @@ installer's uv fallback.
 
 | Asset | Purpose |
 |---|---|
-| `praimate-linux-amd64.tar.gz` | Linux installer and updater |
+| `praimate-linux-{amd64,arm64}.tar.gz` | Linux Desktop installer and updater |
+| `praimate-server-linux-{amd64,arm64}.tar.gz` | Linux Server installer and updater |
 | `praimate-windows-{amd64,arm64}.zip` | Windows installer and updater |
 | `praimate-darwin-arm64.tar.gz` | macOS Apple Silicon installer and updater |
 | `praimate-darwin-amd64.tar.gz` | macOS Intel installer and updater |
@@ -119,3 +120,25 @@ the source commit in the release notes so the rebuilt binaries are traceable.
 After publication, inspect the release's assets and draft/prerelease status and
 check the installer/updater against the intended tag. Stable distribution
 requires a published release with the expected asset names.
+
+## Add Linux ARM64 to an existing release
+
+Linux ARM64 uses GitHub's native `ubuntu-22.04-arm` runner because the GUI,
+PrAImate Code and Graphify require native builds. New full releases include this
+target automatically. To extend an existing published release:
+
+```sh
+gh workflow run linux-arm64.yml --repo sPROFFEs/PrAImate --ref server -f release_tag=v1.3.7
+```
+
+The workflow checks out the existing tag's original source, builds native ARM64
+Desktop and Server packages where supported by that source, and stages each
+shared tool once. It verifies ELF architecture, edition markers, bundled/shared
+binary equality, CLI version and native service tests before uploading.
+
+Publication adds only the ARM64 assets and merges their checksums into the
+existing `SHA256SUMS`. Other platform files, APK, Android version metadata and
+the release tag are retained. Existing checksummed ARM64 files may only be
+reused when their hashes match. A detected concurrent publisher aborts the
+manifest replacement. The publisher job can be retried with the same build
+artifacts without recompiling or replacing unrelated assets.
