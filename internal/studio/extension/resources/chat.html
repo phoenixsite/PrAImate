@@ -89,10 +89,11 @@ const descriptions = {
   runs:'Persisted managed executions. Inspect, resume and open text artifacts.'
 };
 const saved = vscode.getState?.() || {}, pending = new Map();
+var workerSelectedSaved = saved.workerSelected || '';
 let page = pages[saved.page] ? saved.page : 'chat', status = {}, collections = {}, dirty = false, configSignature = '', requestID = 0;
 const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || ''; $('use-context').checked = saved.useContext !== false;
 let hideActivity = !!saved.hideActivity, lastMessages = [];
-function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value,hideActivity,useContext:$('use-context').checked}); }
+function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value,hideActivity,useContext:$('use-context').checked,workerSelected:workerSelectedSaved}); }
 function post(type,data = {},done) { const requestId = ++requestID; pending.set(requestId,{done,page,chatId:status.chatId,workerId:workerSelected}); vscode.postMessage({type,...data,requestId}); return requestId; }
 function button(label,fn,disabled = false) { const b = document.createElement('button'); b.textContent = label; b.disabled = disabled; b.addEventListener('click',fn); return b; }
 function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
@@ -177,7 +178,7 @@ function options(id,entries,value) { $(id).replaceChildren(...entries.map(([key,
 const workerTiers = [['primary','Reasoner'],['middle','Middle'],['fast','Fast']];
 const workerDefault = (tier,cli,runtime='cli') => ({tier,runtime,cli:runtime === 'cli' ? cli : '',model:'',reasoningEffort:'',endpoint:runtime === 'native' ? 'http://localhost:11434/v1' : '',instructions:'',allowEdits:false,allowCommands:false,timeoutSeconds:runtime === 'cli' ? 0 : tier === 'primary' ? 600 : 300,maxInputBytes:65536,maxOutputTokens:runtime === 'native' ? 2048 : 0});
 let workerConfig = {workspace:'',accessMode:'supervised',maxRetries:0,retryDelaySeconds:5,profiles:[workerDefault('primary','codex'),workerDefault('middle','claude'),workerDefault('fast','praimate-cli')]};
-let workerRuns = [], workerSnapshot = null, workerSelected = '', workerModels = {}, workerModelPending = new Set(), workerPollPending = false, workerRenaming = false, workerRenameDraft = '';
+let workerRuns = [], workerSnapshot = null, workerSelected = workerSelectedSaved, workerModels = {}, workerModelPending = new Set(), workerPollPending = false, workerRenaming = false, workerRenameDraft = '';
 function workerInput(label,value,change,type='text') {
   const wrap = element('label',label,'field'), input = document.createElement('input'); input.type = type;
   if(type === 'checkbox') input.checked = !!value; else input.value = value ?? '';
@@ -434,7 +435,7 @@ function renderWorkerGraph(root) {
 function renderWorkerRuns() {
   const tabs=$('worker-tabs');tabs.replaceChildren();
   if(!workerRuns.length) tabs.appendChild(element('p','No worker chats yet.','empty'));
-  for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {notice('');workerSelected=run.id;workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
+  for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {notice('');workerSelected=run.id;workerSelectedSaved=workerSelected;persist();workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
   const result=$('worker-result');result.replaceChildren();const lanes=$('worker-lanes');if(!workerSnapshot){lanes.replaceChildren();workerBoardView=null;}
   $('worker-continue').hidden=!workerSnapshot || ['running','planning','merging'].includes(workerSnapshot.status) || !!workerSnapshot.dag;
   $('worker-followup-panel').hidden=$('worker-continue').hidden;
@@ -614,7 +615,7 @@ window.addEventListener('message',({data:m}) => {
   else if(m.type === 'workerModels') {workerModels[m.cli]=m.models || [];workerModelPending.delete(m.cli);renderWorkerProfiles();if(workerSnapshot?.dag && !document.activeElement?.closest('.worker-graph'))renderWorkerRuns();}
   else if(m.type === 'workerStarted') {workerSelected=m.id;$('worker-status').textContent='Running';$('worker-create').hidden=true;post('workerRefresh',{id:workerSelected});}
   else if(m.type === 'workerDeleted') {workerSelected='';workerSnapshot=null;post('workerRefresh',{id:''});}
-  else if(m.type === 'workerSnapshot') {workerRuns=m.runs || [];workerSelected=m.selectedId || m.snapshot?.id || '';workerSnapshot=m.snapshot || null;const stamp=workerSelected+':'+workerSnapshot?.updatedAt+':'+workerSnapshot?.status;if(stamp!==workerSnapshotStamp){workerSnapshotStamp=stamp;if(!document.activeElement?.closest('.worker-graph') || workerSnapshot?.status!=='draft')renderWorkerRuns();}}
+  else if(m.type === 'workerSnapshot') {workerRuns=m.runs || [];workerSelected=m.selectedId || m.snapshot?.id || '';workerSelectedSaved=workerSelected;persist();workerSnapshot=m.snapshot || null;const stamp=workerSelected+':'+workerSnapshot?.updatedAt+':'+workerSnapshot?.status;if(stamp!==workerSnapshotStamp){workerSnapshotStamp=stamp;if(!document.activeElement?.closest('.worker-graph') || workerSnapshot?.status!=='draft')renderWorkerRuns();}}
   else if(m.type === 'workerActivity' && m.runId===workerSelected && m.workerID===workerAttempt && workerHistoryKey===m.runId+':'+m.workerID) {workerHistory=[...(m.activity.events || []),...workerHistory];workerHistoryBefore=m.activity.before;workerHistoryMore=m.activity.hasMore;workerHistoryBusy=false;renderWorkerBoard();}
   else if(m.type === 'workerTaskPreview' && m.runId===workerSelected && workerPreviewKey===m.runId+':'+m.taskID) {workerPreview=m.preview;workerPreviewBusy=false;renderWorkerBoard();}
   else if(m.type === 'navigate' && pages[m.page]) {if(m.workerID) workerSelected=m.workerID;navigate(m.page);}
