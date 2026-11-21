@@ -332,6 +332,7 @@ export const api = {
   studioOpenProject: (workspacePath, cli, model, agentID, tools) =>
     call('StudioOpenProject', workspacePath || '', cli || '', model || '', agentID || '', tools || ''),
   studioListRecentProjects: () => call('StudioListRecentProjects'),
+  studioRemoveRecentProject: workspacePath => call('StudioRemoveRecentProject', workspacePath || ''),
 }
 
 // onTurn subscribes to streamed workflow turns. Returns an unsubscribe

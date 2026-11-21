@@ -234,9 +234,10 @@ PrAImate cannot add HTTPS to a model server that only exposes HTTP.
 **Studio** opens project sessions in the integrated Code-OSS / VSCodium editor.
 Recent projects appear first and reopen with the CLI, model, agent and tool
 permissions they were last opened with; **Full** tool access asks for
-confirmation first. Use **Change…** on a project to open it with another
-configuration. Projects recorded by older versions open the dialog with the
-folder prefilled. Use **Open project** to choose a folder, CLI,
+confirmation first. Use a project's gear button to open it with another
+configuration, or its **×** button to take it off the list without changing
+the folder. Projects recorded by older versions open the dialog with the folder
+prefilled. Use **Open project** to choose a folder, CLI,
 model, agent and tool permissions. CLI detection and model loading happen when
 opening that dialog, so they do not delay the project list. **Editor environment**
 below the projects contains setup, integration updates and repair actions.

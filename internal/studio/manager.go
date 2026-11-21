@@ -591,6 +591,36 @@ func (m *Manager) saveRecentProject(entry RecentProject, replaceConfig bool) err
 	return writeRecentProjects(sDir, recentsFile, updated)
 }
 
+// RemoveRecentProject removes a workspace from Studio history. The folder
+// itself is not touched. Removing a project that is not listed is a no-op.
+func (m *Manager) RemoveRecentProject(workspacePath string) error {
+	if workspacePath == "" {
+		return nil
+	}
+	sDir, err := StudioDir()
+	if err != nil {
+		return err
+	}
+	recentsFile := filepath.Join(sDir, "recent_projects.json")
+	recentProjectsMu.Lock()
+	defer recentProjectsMu.Unlock()
+	recents, err := readRecentProjects(recentsFile)
+	if err != nil {
+		return err
+	}
+	clean := filepath.Clean(workspacePath)
+	kept := make([]RecentProject, 0, len(recents))
+	for _, r := range recents {
+		if filepath.Clean(r.Path) != clean {
+			kept = append(kept, r)
+		}
+	}
+	if len(kept) == len(recents) {
+		return nil
+	}
+	return writeRecentProjects(sDir, recentsFile, kept)
+}
+
 // writeRecentProjects replaces the history atomically. Callers hold
 // recentProjectsMu.
 func writeRecentProjects(sDir, recentsFile string, entries []RecentProject) error {

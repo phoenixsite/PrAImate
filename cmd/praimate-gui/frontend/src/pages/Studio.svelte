@@ -14,6 +14,8 @@
   let disposed = false
   let extensionsDirectory = '', managedExtensionsDirectory = '', extensionsError = ''
   let extensionsLoading = true, extensionsSaving = false
+  // Same gear as the sidebar Settings entry (App.svelte icons.settings).
+  const settingsIcon = 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'
   let form = { workspacePath: '', cli: 'praimate-code', model: '', agentID: '', tools: 'edits' }
 
   $: busy = preparing || extensionsSaving || !!state.operation || !!state.openingPath
@@ -95,6 +97,16 @@
       form.tools = normalizeToolsForCli(form.cli, form.tools)
     } else form = { ...form, workspacePath: project.path }
     openDialog()
+  }
+
+  async function removeRecent(project) {
+    if (isBusy()) return
+    preparing = true
+    try {
+      if (await session.removeProject(project.path) && !disposed) {
+        showToast({ title: 'Removed from recent projects', message: `${studioProjectName(project.path)} was removed from this list. The folder was not changed.`, page: 'studio' })
+      }
+    } finally { preparing = false }
   }
 
   async function openProject(projectPath = form.workspacePath, saved = null) {
@@ -194,7 +206,12 @@
               <svg class="project-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg>
               <span class="project-info"><strong>{studioProjectName(project.path)}</strong><span class="project-path">{project.path}</span><span class="project-config">{projectSummary(project)}</span><span class="project-action">{state.openingPath === project.path ? 'Opening…' : project.configured ? 'Open in Studio' : 'Configure and open'}</span></span>
             </button>
-            <button class="btn sm project-configure" type="button" disabled={busy} on:click={() => configureRecent(project)} aria-label={`Open ${studioProjectName(project.path)} with another configuration`}>Change…</button>
+            <span class="project-actions">
+              <button class="icon-btn" type="button" disabled={busy} on:click={() => configureRecent(project)} aria-label={`Open ${studioProjectName(project.path)} with another configuration`} title="Open with another configuration">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={settingsIcon} /></svg>
+              </button>
+              <button class="icon-btn project-remove" type="button" disabled={busy} on:click={() => removeRecent(project)} aria-label={`Remove ${studioProjectName(project.path)} from recent projects`} title="Remove from recent projects (the folder is not changed)">×</button>
+            </span>
           </div>
         {/each}
       </div>
@@ -301,8 +318,11 @@
   .project-path, .project-config { color: var(--text-dim); font-size: 12px; }
   .project-config { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .project-entry { position: relative; min-width: 0; display: flex; }
-  .project-entry .project-card { flex: 1; padding-right: 88px; }
-  .project-configure { position: absolute; top: 12px; right: 12px; }
+  .project-entry .project-card { flex: 1; padding-right: 84px; }
+  .project-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; }
+  .project-actions .icon-btn:disabled { opacity: .5; cursor: default; }
+  .project-remove { font-size: 18px; line-height: 1; }
+  .project-remove:hover:enabled { color: var(--err, #e85c5c); background: color-mix(in oklch, var(--err, #e85c5c) 12%, transparent); }
   .project-action { font-size: 12px; color: var(--accent); margin-top: 5px; }
   .empty-state { text-align: center; padding: 36px 20px; }
   .empty-state h3 { margin: 12px 0 6px; font-size: 16px; }

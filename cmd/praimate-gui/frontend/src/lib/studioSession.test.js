@@ -200,3 +200,21 @@ test('recent project entries keep their saved launch configuration', async () =>
   assert.deepEqual(normalizeRecentProjects(null), [])
 })
 
+test('removing a recent project updates the list and reports failures', async () => {
+  const { createStudioSession } = await import('./studioSession.js')
+  const removed = []
+  let fail = false
+  const session = createStudioSession({
+    studioGetStatus: async () => ({ state: 'installed' }),
+    studioListRecentProjects: async () => ['/tmp/a', '/tmp/b'],
+    studioRemoveRecentProject: async path => { if (fail) throw Error('history locked'); removed.push(path) },
+  })
+  await session.refresh()
+  assert.equal(await session.removeProject('/tmp/a'), true)
+  assert.deepEqual(removed, ['/tmp/a'])
+  assert.deepEqual(session.state.projects.map(project => project.path), ['/tmp/b'])
+  fail = true
+  assert.equal(await session.removeProject('/tmp/b'), false)
+  assert.match(session.state.projectsError, /history locked/)
+  assert.deepEqual(session.state.projects.map(project => project.path), ['/tmp/b'])
+})

@@ -79,3 +79,8 @@ func (a *App) StudioListRecentProjects() ([]studio.RecentProject, error) {
 	return mgr.ListRecentProjectEntries()
 }
 
+// StudioRemoveRecentProject removes a workspace from Studio's recent projects.
+// The project folder is not modified.
+func (a *App) StudioRemoveRecentProject(workspacePath string) error {
+	return studio.NewManager(a.core).RemoveRecentProject(workspacePath)
+}

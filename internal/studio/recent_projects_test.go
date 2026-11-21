@@ -140,3 +140,27 @@ func TestRecentProjectsRememberLaunchConfiguration(t *testing.T) {
 	}
 }
 
+func TestRemoveRecentProjectKeepsOthersAndFolder(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	mgr := NewManager(nil)
+	keep, drop := t.TempDir(), t.TempDir()
+	if err := mgr.SaveRecentProjectConfig(RecentProject{Path: keep, CLI: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SaveRecentProjectConfig(RecentProject{Path: drop, CLI: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RemoveRecentProject(drop + string(filepath.Separator)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RemoveRecentProject(t.TempDir()); err != nil {
+		t.Fatalf("removing an unlisted project must be a no-op: %v", err)
+	}
+	entries, err := mgr.ListRecentProjectEntries()
+	if err != nil || len(entries) != 1 || entries[0].Path != keep || entries[0].CLI != "claude" {
+		t.Fatalf("unexpected history after removal: %+v, %v", entries, err)
+	}
+	if info, err := os.Stat(drop); err != nil || !info.IsDir() {
+		t.Fatalf("removed project folder must remain: %v", err)
+	}
+}

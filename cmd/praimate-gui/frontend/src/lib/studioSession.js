@@ -109,7 +109,20 @@ export function createStudioSession(api, changed = () => {}) {
     } finally { patch({ openingPath: '' }) }
   }
 
-  return { get state() { return state }, refresh, loadChoices, loadModels, maintain, launch,
+  // Removing only edits Studio history; the project folder is untouched.
+  async function removeProject(path) {
+    if (disposed || state.operation || state.openingPath || !path) return false
+    try {
+      await api.studioRemoveRecentProject(path)
+      patch({ projects: state.projects.filter(project => project.path !== path), projectsError: '' })
+      return !disposed
+    } catch (error) {
+      patch({ projectsError: String(error) })
+      return false
+    }
+  }
+
+  return { get state() { return state }, refresh, loadChoices, loadModels, maintain, launch, removeProject,
     dispose() { disposed = true; ++statusSeq; ++modelSeq },
   }
 }
