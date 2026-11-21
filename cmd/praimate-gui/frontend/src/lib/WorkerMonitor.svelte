@@ -2,6 +2,7 @@
   import { createEventDispatcher, tick } from 'svelte'
   import { api } from './api.js'
   import { focusDialog } from './focusDialog.js'
+  import { renderMarkdown } from './markdown.js'
   import { showConfirm } from './stores.js'
   import WorkerGraph from './WorkerGraph.svelte'
   import { revealElement } from './scrollToElement.js'
@@ -180,7 +181,7 @@
         {#if !events.length}<p class="muted">{historyBusy ? 'Loading saved activity…' : filter === 'reasoning' ? 'This backend has not reported reasoning.' : currentTask?.dependencies?.length && currentTask.status !== 'running' ? 'Waiting for dependencies: ' + currentTask.dependencies.join(', ') : 'Activity will appear when this assignment starts.'}</p>{/if}
       </div>
     {:else if tab === 'output'}
-      <div class="detail-pane">{#if current?.error}<p class="failure">{current.error}</p>{/if}<pre>{allEvents.filter(e => e.kind === 'result').at(-1)?.text || (currentTask && (!current || current.id === executions.filter(e => e.taskID === currentTask.id).at(-1)?.id) ? currentTask.output : '') || current?.output || 'No result has been reported yet.'}</pre>{#if current?.usage?.calls}<p class="muted">{current.usage.input.toLocaleString()} input · {current.usage.output.toLocaleString()} output tokens · {current.usage.calls} calls</p>{/if}</div>
+      <div class="detail-pane">{#if current?.error}<p class="failure">{current.error}</p>{/if}<div class="md-result"><div class="markdown">{@html renderMarkdown(allEvents.filter(e => e.kind === 'result').at(-1)?.text || (currentTask && (!current || current.id === executions.filter(e => e.taskID === currentTask.id).at(-1)?.id) ? currentTask.output : '') || current?.output || 'No result has been reported yet.')}</div></div>{#if current?.usage?.calls}<p class="muted">{current.usage.input.toLocaleString()} input · {current.usage.output.toLocaleString()} output tokens · {current.usage.calls} calls</p>{/if}</div>
     {:else if tab === 'changes'}
       <div class="detail-pane"><div class="buttons"><strong>Workspace changes</strong><button disabled={previewBusy || !currentTask?.worktree} on:click={loadPreview}>Refresh</button></div>{#if preview}{#if preview.conflicts?.length}<p role="alert">Conflicted files: {preview.conflicts.join(', ')}. Resolve with the worker, or edit and stage these files before continuing.</p>{/if}<code>{preview.path || currentTask?.worktree?.path || ''}</code><pre class="file-status">{preview.status || 'No tracked file changes'}</pre><pre>{preview.diff || 'No tracked diff. New files are listed above.'}</pre>{#if preview.truncated}<p class="muted">Preview truncated. Inspect the worktree for the complete diff.</p>{/if}{:else}<p class="muted">{previewBusy ? 'Reading changes…' : 'This assignment has no isolated worktree yet.'}</p>{/if}
         {#if currentTask?.result && currentTask.review !== 'merged'}<div class="buttons"><button class="btn primary" disabled={active || busy} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'accepted'))}>Accept changes</button><button class="btn reject" disabled={active || busy} title={active ? 'Available when the task graph finishes executing' : ''} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'rejected'))}>Reject changes</button></div>{/if}
@@ -190,7 +191,7 @@
     {/if}
   </div>
   {#if snapshot.dag && tasks.length}<button class="graph-toggle" aria-expanded={showGraph} on:click={() => showGraph = !showGraph}>{showGraph ? 'Hide plan & integration' : 'Plan, routes & integration'}</button>{#if showGraph}<div class="plan-anchor" role="region" aria-label="Plan, routes and integration" tabindex="-1" bind:this={planAnchor}><WorkerGraph bind:this={graph} {snapshot} {clis} {models} on:models on:refresh /></div>{/if}{/if}
-  {#if snapshot.result}<details class="result"><summary>Run summary</summary><pre>{snapshot.result}</pre></details>{/if}
+  {#if snapshot.result}<details class="result"><summary>Run summary</summary><div class="md-result"><div class="markdown">{@html renderMarkdown(snapshot.result)}</div></div></details>{/if}
   {#if !snapshot.dag}<div class="composer" data-voice-composer><VoiceButton disabled={active || busy} context={{page:'workers',worker_id:snapshot.id}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) continueRun() }} /><textarea rows="2" bind:value={draft} disabled={active || busy} aria-label="Follow-up worker task" placeholder="Continue with a new instruction…"></textarea><button class="btn primary" disabled={active || busy || !draft.trim()} on:click={continueRun}>Continue</button></div>{/if}
 </section>
 {#if settings}

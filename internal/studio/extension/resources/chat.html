@@ -339,7 +339,7 @@ function renderWorkerBoard() {
     const events=current?workerMergedEvents():[];
     if(!events.length)log.appendChild(element('p',workerHistoryBusy?'Loading saved activity…':'No activity yet.','hint'));
     for(const ev of events){const item=element('article','','worker-event');item.appendChild(element('small',(ev.cli || current?.cli || 'Local')+' / '+(ev.model || current?.model || 'Default')+' · '+(ev.kind==='retry_scheduled'?'Automatic retry scheduled':(ev.kind || 'activity').replaceAll('_',' '))+(ev.target?' → '+ev.target:'')+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));log.appendChild(item);}consolePanel.appendChild(log);log.scrollTop=workerFollow?log.scrollHeight:oldScroll;
-  } else if(workerConsoleTab==='result') {consolePanel.appendChild(element('pre',workerMergedEvents().filter(e=>e.kind==='result').at(-1)?.text || (current?.id===card.attempt?.id?card.task?.output:'') || current?.output || (!current?card.task?.output:'') || 'No result reported for this attempt.'));if(current?.error)consolePanel.appendChild(element('p',current.error,'error'));}
+  } else if(workerConsoleTab==='result') {consolePanel.appendChild(markdownBlock(workerMergedEvents().filter(e=>e.kind==='result').at(-1)?.text || (current?.id===card.attempt?.id?card.task?.output:'') || current?.output || (!current?card.task?.output:'') || 'No result reported for this attempt.'));if(current?.error)consolePanel.appendChild(element('p',current.error,'error'));}
   else if(workerConsoleTab==='changes') {
     if(card.task?.worktree || card.task?.result){if(!card.task.result)loadWorkerPreview(card);consolePanel.appendChild(button('Refresh changes',()=>{loadWorkerPreview(card,true);renderWorkerBoard();},workerPreviewBusy));if(card.task.result?.resultCommit)consolePanel.appendChild(compareButton(card.task.id));const preview=workerPreviewKey===workerSelected+':'+card.task.id?workerPreview:null;if(preview?.conflicts?.length)consolePanel.appendChild(element('p','Conflicted files: '+preview.conflicts.join(', ')+'. Resolve with the worker, or edit and stage the files before continuing.','error'));consolePanel.appendChild(element('pre',preview?.status || card.task.result?.changedFiles?.join('\n') || ''));consolePanel.appendChild(element('pre',preview?.diff || card.task.result?.diff || (workerPreviewBusy?'Loading changes…':'No tracked file changes.')));consolePanel.appendChild(element('p','Current task worktree · '+(card.task.worktree?.path || 'Saved result'),'hint'));if(preview?.truncated)consolePanel.appendChild(element('p','Diff preview truncated. Inspect the worktree for full changes.','hint'));}
     else consolePanel.appendChild(element('p','This assignment has no task worktree.','hint'));
@@ -356,8 +356,9 @@ function graphSelect(label,entries,value,change) {
   for(const [id,text,disabled] of entries) {const option=element('option',text);option.value=id;option.disabled=!!disabled;select.appendChild(option);}
   select.value=value || '';select.addEventListener('change',()=>change(select.value));field.appendChild(select);return field;
 }
-function graphDetails(label,text,key) {
-  const details=document.createElement('details');details.open=graphDetailsOpen.has(key);details.appendChild(element('summary',label));details.appendChild(element('pre',text));
+function markdownBlock(text) { const e = document.createElement('div'); e.className = 'markdown'; e.innerHTML = markdown(text); return e; }
+function graphDetails(label,text,key,rich = false) {
+  const details=document.createElement('details');details.open=graphDetailsOpen.has(key);details.appendChild(element('summary',label));details.appendChild(rich ? markdownBlock(text) : element('pre',text));
   details.addEventListener('toggle',()=>{if(details.open)graphDetailsOpen.add(key);else graphDetailsOpen.delete(key);});return details;
 }
 function graphOpen(type,taskID) {post(type,{id:workerSelected,taskID});}
@@ -411,7 +412,7 @@ function renderWorkerGraph(root) {
       } else card.appendChild(element('p',(task.worker.profile || 'middle')+' · '+workerTaskRoute(task)+' · '+(task.worker.provider || 'Provider configured by backend'),'hint'));
       if(task.worktree)card.appendChild(element('pre',task.worktree.path+'\n'+task.worktree.branch));
       if(task.error)card.appendChild(element('p',task.error,'error'));
-      if(task.output)card.appendChild(graphDetails('Worker result',task.output,workerSelected+task.id+'result'));
+      if(task.output)card.appendChild(graphDetails('Worker result',task.output,workerSelected+task.id+'result',true));
       if(task.result) {
         card.appendChild(element('p',task.result.baseCommit.slice(0,10)+' → '+task.result.resultCommit.slice(0,10),'hint'));card.appendChild(element('pre',(task.result.changedFiles || []).join(', ') || 'No file changes'));
         card.appendChild(graphDetails('Git diff'+(task.result.diffTruncated?' (preview)':''),task.result.diff || 'No changes',workerSelected+task.id+'diff'));
@@ -481,7 +482,7 @@ function renderWorkerRuns() {
     }
   }
   for(const turn of workerSnapshot.turns || []) result.appendChild(element('p','You: '+turn.task+'\nReasoner: '+(turn.result || turn.error || ''),'card'));
-  if(workerSnapshot.result) result.appendChild(element('pre',workerSnapshot.result));
+  if(workerSnapshot.result) result.appendChild(markdownBlock(workerSnapshot.result));
   const tasks=workerSnapshot.dag?.tasks || [],failed=tasks.filter(t=>t.status==='failed'),blocked=tasks.filter(t=>t.status==='blocked'),retrying=tasks.filter(t=>t.status==='retrying'),completed=tasks.filter(t=>t.status==='completed');
   if(tasks.length)result.appendChild(element('p',completed.length+'/'+tasks.length+' complete · '+tasks.filter(t=>t.status==='running').length+' working · '+retrying.length+' retrying · '+failed.length+' failed · '+blocked.length+' blocked','hint'));
   if(workerSnapshot.error){

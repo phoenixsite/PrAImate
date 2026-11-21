@@ -370,40 +370,40 @@ label.lbl { display: block; font-size: 12px; color: var(--text-dim); margin: 10p
 }
 
 /* Rendered model replies. User messages remain literal text. */
-.msg.assistant .markdown {
+:is(.msg.assistant, .md-result) .markdown {
   white-space: normal;
   line-height: 1.62;
   overflow-wrap: anywhere;
 }
-.msg.assistant .markdown > :first-child { margin-top: 0; }
-.msg.assistant .markdown > :last-child { margin-bottom: 0; }
-.msg.assistant .markdown h1,
-.msg.assistant .markdown h2,
-.msg.assistant .markdown h3,
-.msg.assistant .markdown h4 {
+:is(.msg.assistant, .md-result) .markdown > :first-child { margin-top: 0; }
+:is(.msg.assistant, .md-result) .markdown > :last-child { margin-bottom: 0; }
+:is(.msg.assistant, .md-result) .markdown h1,
+:is(.msg.assistant, .md-result) .markdown h2,
+:is(.msg.assistant, .md-result) .markdown h3,
+:is(.msg.assistant, .md-result) .markdown h4 {
   color: var(--text);
   line-height: 1.28;
   margin: 1.25em 0 0.5em;
 }
-.msg.assistant .markdown h1 { font-size: 1.42em; }
-.msg.assistant .markdown h2 {
+:is(.msg.assistant, .md-result) .markdown h1 { font-size: 1.42em; }
+:is(.msg.assistant, .md-result) .markdown h2 {
   font-size: 1.2em;
   padding-bottom: 0.28em;
   border-bottom: 1px solid var(--border);
 }
-.msg.assistant .markdown h3 { font-size: 1.06em; }
-.msg.assistant .markdown p,
-.msg.assistant .markdown ul,
-.msg.assistant .markdown ol,
-.msg.assistant .markdown blockquote,
-.msg.assistant .markdown pre,
-.msg.assistant .markdown table {
+:is(.msg.assistant, .md-result) .markdown h3 { font-size: 1.06em; }
+:is(.msg.assistant, .md-result) .markdown p,
+:is(.msg.assistant, .md-result) .markdown ul,
+:is(.msg.assistant, .md-result) .markdown ol,
+:is(.msg.assistant, .md-result) .markdown blockquote,
+:is(.msg.assistant, .md-result) .markdown pre,
+:is(.msg.assistant, .md-result) .markdown table {
   margin: 0.65em 0;
 }
-.msg.assistant .markdown ul,
-.msg.assistant .markdown ol { padding-left: 1.6em; }
-.msg.assistant .markdown li + li { margin-top: 0.25em; }
-.msg.assistant .markdown code {
+:is(.msg.assistant, .md-result) .markdown ul,
+:is(.msg.assistant, .md-result) .markdown ol { padding-left: 1.6em; }
+:is(.msg.assistant, .md-result) .markdown li + li { margin-top: 0.25em; }
+:is(.msg.assistant, .md-result) .markdown code {
   font-family: var(--mono);
   font-size: 0.9em;
   padding: 0.12em 0.36em;
@@ -411,14 +411,14 @@ label.lbl { display: block; font-size: 12px; color: var(--text-dim); margin: 10p
   border-radius: 5px;
   background: var(--bg);
 }
-.msg.assistant .markdown pre {
+:is(.msg.assistant, .md-result) .markdown pre {
   overflow-x: auto;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
 }
-.msg.assistant .markdown pre code {
+:is(.msg.assistant, .md-result) .markdown pre code {
   display: block;
   padding: 0;
   border: 0;
@@ -426,12 +426,12 @@ label.lbl { display: block; font-size: 12px; color: var(--text-dim); margin: 10p
   white-space: pre;
   line-height: 1.5;
 }
-.msg.assistant .markdown blockquote {
+:is(.msg.assistant, .md-result) .markdown blockquote {
   padding: 0.25em 0 0.25em 0.9em;
   border-left: 3px solid var(--accent);
   color: var(--text-dim);
 }
-.msg.assistant .markdown table {
+:is(.msg.assistant, .md-result) .markdown table {
   display: block;
   width: max-content;
   max-width: 100%;
@@ -439,22 +439,22 @@ label.lbl { display: block; font-size: 12px; color: var(--text-dim); margin: 10p
   border-spacing: 0;
   border-collapse: collapse;
 }
-.msg.assistant .markdown th,
-.msg.assistant .markdown td {
+:is(.msg.assistant, .md-result) .markdown th,
+:is(.msg.assistant, .md-result) .markdown td {
   padding: 7px 10px;
   border: 1px solid var(--border);
   text-align: left;
 }
-.msg.assistant .markdown th { background: var(--bg-raised); }
-.msg.assistant .markdown a { color: var(--accent); text-decoration: none; }
-.msg.assistant .markdown a:hover { text-decoration: underline; }
-.msg.assistant .markdown hr {
+:is(.msg.assistant, .md-result) .markdown th { background: var(--bg-raised); }
+:is(.msg.assistant, .md-result) .markdown a { color: var(--accent); text-decoration: none; }
+:is(.msg.assistant, .md-result) .markdown a:hover { text-decoration: underline; }
+:is(.msg.assistant, .md-result) .markdown hr {
   border: 0;
   border-top: 1px solid var(--border);
   margin: 1.2em 0;
 }
-.msg.assistant .markdown .task-item { list-style: none; }
-.msg.assistant .markdown .task-item input { margin: 0 0.45em 0 -1.4em; }
+:is(.msg.assistant, .md-result) .markdown .task-item { list-style: none; }
+:is(.msg.assistant, .md-result) .markdown .task-item input { margin: 0 0.45em 0 -1.4em; }
 
 .mono { font-family: var(--mono); font-size: 12px; }
 

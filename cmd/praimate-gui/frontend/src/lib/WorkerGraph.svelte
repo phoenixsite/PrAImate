@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import { api } from './api.js'
   import { showConfirm } from './stores.js'
+  import { renderMarkdown } from './markdown.js'
   import { workerTaskRoute, workerTaskHasOverrides } from './workerActivity.js'
   export let snapshot
   export let clis = []
@@ -98,7 +99,7 @@
           {/if}
           {#if task.worktree}<p class="path">{task.worktree.path}<br />{task.worktree.branch}</p>{/if}
           {#if task.error}<p class="error" role="alert">{task.error}</p>{/if}
-          {#if task.output}<details><summary>Worker result</summary><pre>{task.output}</pre></details>{/if}
+          {#if task.output}<details><summary>Worker result</summary><div class="md-result"><div class="markdown">{@html renderMarkdown(task.output)}</div></div></details>{/if}
           {#if task.result}
             <p class="hint">{task.result.baseCommit.slice(0, 10)} → {task.result.resultCommit.slice(0, 10)}</p>
             <p class="path">{task.result.changedFiles?.join(', ') || 'No file changes'}</p>
