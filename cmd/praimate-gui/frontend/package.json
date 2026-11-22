@@ -16,6 +16,7 @@
     "test:terminal": "node --test src/lib/terminal.test.js",
     "test:studio": "node --test src/pages/Studio.test.js src/pages/Documents.test.js src/pages/AgentStudio.test.js src/lib/studioSession.test.js",
     "test:api-events": "node --test src/lib/apiEvents.test.js",
+    "test:chat-search": "node --test src/lib/chatSearch.test.js",
     "test:surfaces": "node --test src/pages/surfaceNavigation.test.js"
   },
   "dependencies": {

@@ -15,6 +15,7 @@
   import { findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
   import { localChoice, localChoiceKey } from '../lib/localModelChoice.js'
+  import { buildRanges, paintHighlights, clearHighlights, stepIndex, counterLabel, shouldOpenFind } from '../lib/chatSearch.js'
 
 
   let chats = []
@@ -550,6 +551,78 @@
     }
   }
 
+  // --- In-chat find (Ctrl/Cmd+F) ---
+  let findOpen = false
+  let findQuery = ''
+  let findInput
+  let findRanges = []
+  let findIndex = -1
+  let findTimer
+  const composerScope = { contains: (t) => Boolean(t?.closest?.('.composer')) }
+
+  function runFind(keepIndex = false) {
+    if (!findOpen || !threadEl || !findQuery) {
+      findRanges = []
+      findIndex = -1
+      clearHighlights()
+      return
+    }
+    findRanges = buildRanges(threadEl, findQuery)
+    findIndex = findRanges.length ? (keepIndex && findIndex >= 0 ? Math.min(findIndex, findRanges.length - 1) : 0) : -1
+    paintHighlights(findRanges, findIndex)
+    if (!keepIndex) revealMatch()
+  }
+
+  function revealMatch() {
+    const r = findRanges[findIndex]
+    const el = r?.startContainer?.parentElement
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'auto' })
+  }
+
+  function onFindInput() {
+    clearTimeout(findTimer)
+    findTimer = setTimeout(() => runFind(false), 120)
+  }
+
+  function findStep(delta) {
+    if (!findRanges.length) return
+    findIndex = stepIndex(findIndex, findRanges.length, delta)
+    paintHighlights(findRanges, findIndex)
+    revealMatch()
+  }
+
+  async function openFind() {
+    findOpen = true
+    await tick()
+    findInput?.focus()
+    findInput?.select()
+    if (findQuery) runFind(false)
+  }
+
+  function closeFind() {
+    findOpen = false
+    clearTimeout(findTimer)
+    findRanges = []
+    findIndex = -1
+    clearHighlights()
+  }
+
+  function onFindKey(e) {
+    if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? -1 : 1) }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind() }
+  }
+
+  function onWindowFindKey(e) {
+    if (!selected || !shouldOpenFind(e, composerScope)) return
+    // Replace the webview's native find with the chat-aware one.
+    e.preventDefault()
+    openFind()
+  }
+
+  // Messages changed (new reply, streaming) while the bar is open: re-scan.
+  $: if (findOpen && findQuery) { messages, stream?.text, clearTimeout(findTimer), findTimer = setTimeout(() => runFind(true), 150) }
+  $: if (!selected && findOpen) closeFind()
+
   function onKey(e) {
     // Enter may be part of an IME composition (accented/non-Latin input), not
     // an intent to send the message.
@@ -640,6 +713,8 @@
   })
 
   onDestroy(() => {
+    clearHighlights()
+    clearTimeout(findTimer)
     cancelAnimationFrame(scrollFrame)
     scrollDisposed = true
     clearTimeout(searchTimer)
@@ -781,6 +856,8 @@
   </div>
 {/if}
 
+<svelte:window on:keydown={onWindowFindKey} />
+
 {#if selected}
   <div class="row" style="margin-bottom: 12px">
     <button class="btn" on:click={back}>← Chats</button>
@@ -804,6 +881,16 @@
   </div>
 
   {#if error}<div class="banner">{error}</div>{/if}
+
+  {#if findOpen}
+    <div class="findbar" role="search">
+      <input class="field" bind:this={findInput} bind:value={findQuery} on:input={onFindInput} on:keydown={onFindKey} placeholder="Find in chat" aria-label="Find in chat" />
+      <span class="find-count" aria-live="polite">{findQuery ? counterLabel(findIndex, findRanges.length) : ''}</span>
+      <button class="btn" on:click={() => findStep(-1)} disabled={!findRanges.length} title="Previous (Shift+Enter)" aria-label="Previous match">↑</button>
+      <button class="btn" on:click={() => findStep(1)} disabled={!findRanges.length} title="Next (Enter)" aria-label="Next match">↓</button>
+      <button class="btn" on:click={closeFind} title="Close (Esc)" aria-label="Close find">✕</button>
+    </div>
+  {/if}
 
   <div class="thread" bind:this={threadEl} on:scroll={onThreadScroll}>
     {#if messages.length === 0}
@@ -1063,6 +1150,11 @@
   {/if}
 
 <style>
+  .findbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .findbar .field { flex: 1; min-width: 0; }
+  .find-count { min-width: 64px; text-align: center; color: var(--text-dim, inherit); font-size: 12px; white-space: nowrap; }
+  :global(::highlight(chat-find)) { background: color-mix(in srgb, #ffd54a 45%, transparent); color: inherit; }
+  :global(::highlight(chat-find-current)) { background: #ff9800; color: #000; }
   .thread {
     border: 1px solid var(--border);
     border-radius: var(--radius);
