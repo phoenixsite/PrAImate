@@ -2,11 +2,14 @@
   import { activityName, activityStatus } from './chatActivity.js'
   export let events = []
   export let collapsible = true
+  export let hidden = false
 </script>
 
 {#if events.length}
-  <svelte:element this={collapsible ? 'details' : 'div'} class="activity-block" aria-label="Assistant activity">
-    {#if collapsible}<summary>Activity · {events.length} event{events.length === 1 ? '' : 's'}</summary>{/if}
+  <!-- The global Hide/Show toggle drives the open state of every block, finished or live. -->
+  <svelte:element this={collapsible || hidden ? 'details' : 'div'} open={collapsible || hidden ? !hidden : undefined} class="activity-block" aria-label="Assistant activity">
+    {#if hidden}<summary>{events.length} action{events.length === 1 ? '' : 's'} hidden</summary>
+    {:else if collapsible}<summary>Activity · {events.length} event{events.length === 1 ? '' : 's'}</summary>{/if}
     <div class="tool-feed">
       {#each events as item}
         <div class="tool-row" class:err={item.ok === false || item.type === 'error'}>

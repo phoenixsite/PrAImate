@@ -10,6 +10,8 @@
   import { renderMarkdown } from '../lib/markdown.js'
   import ChatActivity from '../lib/ChatActivity.svelte'
   import ChatTools from '../lib/ChatTools.svelte'
+  import ChatActivityToggle from '../lib/ChatActivityToggle.svelte'
+  import { hideChatActivity } from '../lib/chatActivityPref.js'
   import { applyChatStreamEvent } from '../lib/chatActivity.js'
   import { toolLevelsForCli, normalizeToolsForCli } from '../lib/chatTools.js'
   import { findTerminalForChat } from '../lib/terminal.js'
@@ -799,6 +801,7 @@
       {/if}
     </div>
     <ChatTools cli={selected.CLIAgent} value={toolsLevel} on:change={event => setTools(event.detail)} />
+    <ChatActivityToggle />
     <button class="btn" on:click={() => openConfig(selected)} title="Change the CLI / model / tools behind this chat">⚙ Edit</button>
     <button class="btn danger" on:click={() => remove(selected)}>Delete</button>
   </div>
@@ -819,7 +822,7 @@
         <div class="msg {m.Role === 'user' ? 'user' : 'assistant'}" class:pending={m._pending}>
           <div class="who">{m.Role}{m.TS ? ' · ' + fmtDate(m.TS) : ''}{m.Meta?.interrupted ? ' · interrupted' : ''}</div>
           <!-- content rendered below; studio context block stripped -->
-          <ChatActivity events={m.Meta?.activity || []} />
+          <ChatActivity events={m.Meta?.activity || []} hidden={$hideChatActivity} />
           {#if m.Role === 'user'}
             {cleanMsg(m.Content)}
           {:else}
@@ -846,7 +849,7 @@
     {#if sending}
       <div class="msg assistant">
         <div class="who">assistant</div>
-        <ChatActivity events={stream?.activity || []} collapsible={false} />
+        <ChatActivity events={stream?.activity || []} collapsible={false} hidden={$hideChatActivity} />
         {#if stream?.text}
           <div class="markdown">{@html renderMarkdown(stream.text)}</div><span class="cursor">▍</span>
         {:else}

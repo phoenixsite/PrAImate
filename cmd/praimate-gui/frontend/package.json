@@ -16,7 +16,8 @@
     "test:terminal": "node --test src/lib/terminal.test.js",
     "test:studio": "node --test src/pages/Studio.test.js src/pages/Documents.test.js src/pages/AgentStudio.test.js src/lib/studioSession.test.js",
     "test:api-events": "node --test src/lib/apiEvents.test.js",
-    "test:surfaces": "node --test src/pages/surfaceNavigation.test.js"
+    "test:surfaces": "node --test src/pages/surfaceNavigation.test.js",
+    "test:chat-activity": "node --test src/lib/chatActivity.test.js src/lib/chatActivityPref.test.js"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",

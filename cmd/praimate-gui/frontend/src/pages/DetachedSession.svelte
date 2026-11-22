@@ -8,6 +8,8 @@
   import { renderMarkdown } from '../lib/markdown.js'
   import ChatActivity from '../lib/ChatActivity.svelte'
   import ChatTools from '../lib/ChatTools.svelte'
+  import ChatActivityToggle from '../lib/ChatActivityToggle.svelte'
+  import { hideChatActivity } from '../lib/chatActivityPref.js'
   import { applyChatStreamEvent } from '../lib/chatActivity.js'
   import { normalizeToolsForCli } from '../lib/chatTools.js'
 
@@ -299,6 +301,7 @@
       <span class="connection" class:offline={!connected}>{connected ? 'Connected to PrAImate' : 'Disconnected'}</span>
     </div>
     {#if mode.kind === 'chat' && chat}<ChatTools cli={chat.CLIAgent} value={normalizeToolsForCli(chat.CLIAgent, chat.Settings?.tools)} disabled={!connected || sending || toolsSaving} on:change={event => setTools(event.detail)} />{/if}
+    {#if mode.kind === 'chat'}<ChatActivityToggle />{/if}
     {#if mode.kind === 'chat' && sending}<button class="btn danger" on:click={stopChat}>■ Stop</button>{/if}
     {#if mode.kind === 'terminal' && !exited}<button class="btn danger" on:click={stopTerminal}>■ Stop</button>{/if}
   </header>
@@ -314,7 +317,7 @@
         <div class="msg {message.Role === 'user' ? 'user' : message.Role === 'command' ? 'command' : 'assistant'}" class:pending={message._pending}>
           <div class="who">{message.Role}{message.Meta?.interrupted ? ' · interrupted' : ''}</div>
           {#if message.Role === 'assistant'}
-            <ChatActivity events={message.Meta?.activity || []} />
+            <ChatActivity events={message.Meta?.activity || []} hidden={$hideChatActivity} />
             <div class="markdown">{@html renderMarkdown(cleanMsg(message.Content))}</div>
           {:else if message.Role === 'command'}
             <pre class="command-output">{message.Content}</pre>
@@ -326,7 +329,7 @@
       {#if sending}
         <div class="msg assistant">
           <div class="who">assistant</div>
-          <ChatActivity events={stream?.activity || []} collapsible={false} />
+          <ChatActivity events={stream?.activity || []} collapsible={false} hidden={$hideChatActivity} />
           {#if stream?.text}<div class="markdown">{@html renderMarkdown(stream.text)}</div>{:else}<span class="typing">…thinking</span>{/if}
         </div>
       {/if}
