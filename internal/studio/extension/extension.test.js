@@ -202,6 +202,46 @@ test('a dedicated worker window does not consume a pending sidebar navigation', 
     assert.equal(h.provider().requestedPage,'');
   } finally {h.close();}
 });
+test('a badge counts finished chats and worker runs while PrAImate is hidden and clears when shown', async () => {
+  let workerStatus = 'running';
+  const h=extensionHarness('linux',true,null,req => req.method==='workers.list' ? [{id:'run-1',title:'Refactor',status:workerStatus}] : undefined);
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    let visibility;
+    const view={visible:false,badge:undefined,webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage(){},onDidReceiveMessage(){}},onDidDispose(){},onDidChangeVisibility:fn=>{visibility=fn;}};
+    h.provider().resolveWebviewView(view,{state:undefined});
+    await h.provider().checkWorkers();
+    assert.equal(view.badge?.value || 0,0);
+    await h.provider().send('hello',false);
+    assert.equal(view.badge.value,1);
+    workerStatus='completed';
+    await h.provider().checkWorkers();
+    assert.equal(view.badge.value,2);
+    assert.match(view.badge.tooltip,/Chat.*Refactor/);
+    view.visible=true;visibility();
+    assert.equal(view.badge?.value || 0,0);
+    const polls=h.requests.filter(r=>r.method==='workers.list').length;
+    await h.provider().checkWorkers();
+    assert.equal(h.requests.filter(r=>r.method==='workers.list').length,polls,'no polling while the view is visible');
+    await h.provider().send('again',false);
+    assert.equal(view.badge?.value || 0,0,'no badge while the view is visible');
+  } finally {h.close();}
+});
+test('a badge pending while no view exists is cleared when the sidebar view is shown again', async () => {
+  const h=extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    await h.provider().send('hello',false);
+    assert.equal(h.provider().unseen.size,1);
+    let receive;
+    const view={visible:true,badge:undefined,webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage(){},onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){},onDidChangeVisibility(){}};
+    h.provider().resolveWebviewView(view,{state:undefined});
+    assert.equal(h.provider().unseen.size,0);
+    assert.equal(view.badge?.value || 0,0);
+  } finally {h.close();}
+});
 for (const platform of ['linux','win32']) {
   test(platform+': launches stdio with spaced paths and persists chat identity', async () => {
     const h = extensionHarness(platform);

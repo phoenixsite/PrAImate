@@ -9,7 +9,7 @@ const { terminalOptions } = require('./terminal');
 const terminalUsage = new Map();
 
 let rpc, transport, backend, context, output, statusBar, provider;
-let reconnectTimer, stopped = false, generation = 0, launchInfo = {}, connectionFile, stopWatching;
+let workerWatchTimer, reconnectTimer, stopped = false, generation = 0, launchInfo = {}, connectionFile, stopWatching;
 let currentStatus = { connected: false, activeCLI: 'praimate-code', activeModel: '', activeAgent: '', activeTools: 'safe', activeWorkspace: '', availableCLIs: [], agents: [], models: [], desktopWindow:{available:false,hidden:false} };
 const workspace = () => currentStatus.activeWorkspace || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 const call = (method, params) => rpc ? rpc.request(method, params) : Promise.reject(new Error('PrAImate Core is offline'));
@@ -243,7 +243,7 @@ function editorContext() {
 }
 
 class ChatView {
-  constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); this.sidebarViews = new Set(); this.requestedPage = ''; }
+  constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.unseen = new Map(); this.workerStatus = null; this.checkingWorkers = false; this.readyViews = new Set(); this.sidebarViews = new Set(); this.requestedPage = ''; }
   resolveWebviewView(view, workerArg = '') {
     // VS Code calls this as (view, context, token) for sidebar views; only the worker panel passes a run id string.
     const workerID = typeof workerArg === 'string' ? workerArg : '';
@@ -266,7 +266,7 @@ class ChatView {
           try { const result = await call(data.method,data.params || {}); view.webview.postMessage({type:'assistantReply',id:data.requestId,result}); }
           catch(error) { view.webview.postMessage({type:'assistantReply',id:data.requestId,error:error.message}); throw error; }
         },
-        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) { view.webview.postMessage({type:'navigate',page:this.requestedPage}); this.requestedPage = ''; } },
+        ready:() => { if (!workerID && view.visible) this.clearUnseen(); this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) { view.webview.postMessage({type:'navigate',page:this.requestedPage}); this.requestedPage = ''; } },
         send:() => this.send(data.text, data.useContext),
         updateConfig:() => configure(data.config),
         quickAction:() => this.quickAction(data.action),
@@ -387,6 +387,11 @@ class ChatView {
       });
     }, undefined, context.subscriptions);
     view.onDidDispose(() => { this.views.delete(view); this.readyViews.delete(view); this.sidebarViews.delete(view); });
+    // The badge only exists on sidebar views; it is cleared as soon as the user looks at PrAImate.
+    // Workers are only polled while hidden: showing the view drops the baseline, hiding it takes a fresh one.
+    view.onDidChangeVisibility?.(() => { if (view.visible) { this.clearUnseen(); this.workerStatus = null; } else this.checkWorkers(); });
+    // A sidebar view is re-resolved when it is shown again and gets no visibility event for that, so clear here too.
+    if (!workerID && view.visible) this.clearUnseen(); else this.updateBadge();
   }
   post(message) { for (const view of this.views) view.webview.postMessage(message); }
   navigate(page) {
@@ -395,6 +400,31 @@ class ChatView {
     const targets = [...this.readyViews].filter(view => this.sidebarViews.has(view));
     this.requestedPage = targets.length ? '' : page;
     for (const view of targets) view.webview.postMessage({type:'navigate',page});
+  }
+  // Finished chats and worker runs are counted only while no PrAImate view is visible.
+  trackFinished(key,label) {
+    if ([...this.sidebarViews].some(view => view.visible)) return;
+    this.unseen.set(key,label); this.updateBadge();
+  }
+  clearUnseen() { if (this.unseen.size) { this.unseen.clear(); this.updateBadge(); } }
+  updateBadge() {
+    // Assigning undefined does not remove an existing badge in VS Code; a zero value is not rendered, so use it to clear.
+    const badge = this.unseen.size ? {value:this.unseen.size,tooltip:'Finished: '+[...this.unseen.values()].join(', ')} : {value:0,tooltip:''};
+    for (const view of this.sidebarViews) if ('badge' in view) view.badge = badge;
+  }
+  async checkWorkers() {
+    if (!currentStatus.connected || this.checkingWorkers || [...this.sidebarViews].some(view => view.visible)) return;
+    this.checkingWorkers = true;
+    try {
+      const active = new Set(['running','planning','merging']), runs = await call('workers.list') || [], next = new Map();
+      for (const run of runs) {
+        next.set(run.id,run.status);
+        const before = this.workerStatus?.get(run.id);
+        if (before && active.has(before) && !active.has(run.status) && !run.nextRetryAt) this.trackFinished('worker:'+run.id,String(run.title || run.task || 'Worker run').slice(0,40));
+      }
+      this.workerStatus = next;
+    } catch (_) { /* the next poll retries */ }
+    finally { this.checkingWorkers = false; }
   }
   notifyStatus() { this.post({type:'status',status:{...currentStatus,busy:this.busy,chatId:this.chatId,attachments:this.attachments.map(a => path.basename(a))},context:editorContext()}); }
   render() { this.post({type:'messages',messages:this.messages}); this.notifyStatus(); }
@@ -481,7 +511,7 @@ class ChatView {
       throw err;
     } finally {
       if (this.current) this.current.inProgress = false;
-      this.busy = false; this.current = null; this.render(); refresh();
+      this.busy = false; this.current = null; this.render(); refresh(); this.trackFinished('chat','Chat');
     }
   }
   stream(event) {
@@ -965,6 +995,11 @@ function activate(ctx) {
   };
   fs.watchFile(connectionFile,{persistent:false,interval:1500},connectionChanged);
   stopWatching = () => fs.unwatchFile(connectionFile,connectionChanged);
+  const watchWorkers = () => {
+    if (stopped) return;
+    provider.checkWorkers().finally(() => { if (!stopped) { workerWatchTimer = setTimeout(watchWorkers,4000); workerWatchTimer.unref?.(); } });
+  };
+  watchWorkers();
   context.subscriptions.push({dispose:stopWatching});
   if (vscode.window.onDidCloseTerminal) context.subscriptions.push(vscode.window.onDidCloseTerminal(term => {
     const usage=terminalUsage.get(term); terminalUsage.delete(term);
@@ -1025,5 +1060,5 @@ async function showText(value, language = 'plaintext') {
   const doc = await vscode.workspace.openTextDocument({content:String(value),language});
   await vscode.window.showTextDocument(doc);
 }
-function deactivate() { stopped = true; ++generation; stopWatching?.(); disposeConnection(); }
+function deactivate() { stopped = true; ++generation; clearTimeout(workerWatchTimer); stopWatching?.(); disposeConnection(); }
 module.exports = { activate,deactivate };
