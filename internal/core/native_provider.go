@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/hosttls"
@@ -79,6 +80,66 @@ func nativeBaseURL(endpoint string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
+func nativeClientTimeout(method string) time.Duration {
+	if method == http.MethodPost {
+		return 0
+	}
+	return 3 * time.Minute
+}
+
+// nativeStreamIdleTimeout bounds silence from the backend, not total duration:
+// every received byte (including reasoning tokens) restarts it.
+var nativeStreamIdleTimeout = 5 * time.Minute
+
+type nativeIdle struct {
+	timer *time.Timer
+	after time.Duration
+	hit   atomic.Bool
+}
+
+func (i *nativeIdle) fired() bool { return i != nil && i.hit.Load() }
+func (i *nativeIdle) err() error {
+	return fmt.Errorf("model backend sent no data for %s", i.after)
+}
+
+// nativeIdleContext returns a context cancelled after nativeStreamIdleTimeout
+// without activity. Only completions (POST) are watched; stop must always be
+// called to release the timer and context.
+func nativeIdleContext(ctx context.Context, method string) (context.Context, func(), *nativeIdle) {
+	if method != http.MethodPost || nativeStreamIdleTimeout <= 0 {
+		return ctx, func() {}, nil
+	}
+	child, cancel := context.WithCancel(ctx)
+	idle := &nativeIdle{after: nativeStreamIdleTimeout}
+	idle.timer = time.AfterFunc(idle.after, func() {
+		idle.hit.Store(true)
+		cancel()
+	})
+	return child, func() { idle.timer.Stop(); cancel() }, idle
+}
+
+type nativeIdleBody struct {
+	io.ReadCloser
+	idle *nativeIdle
+	stop func()
+}
+
+func (b *nativeIdleBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.idle.timer.Reset(b.idle.after)
+	}
+	if err != nil && err != io.EOF && b.idle.fired() {
+		err = b.idle.err()
+	}
+	return n, err
+}
+
+func (b *nativeIdleBody) Close() error {
+	b.stop()
+	return b.ReadCloser.Close()
+}
+
 func (p nativeProvider) request(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	base, err := nativeBaseURL(p.route.Endpoint)
 	if err != nil {
@@ -86,7 +147,11 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 	}
 	client := p.http
 	if client == nil {
-		client, err = hosttls.Client(p.route.Endpoint, p.route.TLSCertificate, 3*time.Minute)
+		// Client.Timeout also covers reading the response body, so it would
+		// cut a long streamed completion (e.g. a reasoning model) mid-stream.
+		// Completions are bounded by ctx (the CLI --timeout); only short
+		// metadata calls keep a fixed deadline.
+		client, err = hosttls.Client(p.route.Endpoint, p.route.TLSCertificate, nativeClientTimeout(method))
 		if err != nil {
 			return nil, err
 		}
@@ -99,8 +164,10 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	var lastHTTPError *nativeHTTPError
 	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(body))
+		reqCtx, stopIdle, idle := nativeIdleContext(ctx, method)
+		req, err := http.NewRequestWithContext(reqCtx, method, base+path, bytes.NewReader(body))
 		if err != nil {
+			stopIdle()
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -110,6 +177,10 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 		}
 		res, err := copyClient.Do(req)
 		if err != nil {
+			stopIdle()
+			if idle.fired() {
+				err = idle.err()
+			}
 			requestErr := fmt.Errorf("native model request: %w", err)
 			if lastHTTPError != nil {
 				return nil, errors.Join(requestErr, lastHTTPError)
@@ -117,10 +188,14 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 			return nil, requestErr
 		}
 		if res.StatusCode >= 200 && res.StatusCode < 300 {
+			if idle != nil {
+				res.Body = &nativeIdleBody{ReadCloser: res.Body, idle: idle, stop: stopIdle}
+			}
 			return res, nil
 		}
 		raw, _ := io.ReadAll(io.LimitReader(res.Body, 8192))
 		res.Body.Close()
+		stopIdle()
 		message := string(raw)
 		if p.route.APIKey != "" {
 			message = strings.ReplaceAll(message, p.route.APIKey, "[redacted]")
